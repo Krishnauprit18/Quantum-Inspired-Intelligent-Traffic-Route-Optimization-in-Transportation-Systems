@@ -1,0 +1,32 @@
+# Example benchmark plan (system-design.html §14, PDF Deliverable 5).
+# Run with:  quantroute benchmark benchmark/run.yaml
+#
+# Paths are relative to THIS file. `instances` may list .vrp files or directories.
+
+name: phase0-cvrp-smoke
+
+instances:
+  - ../data/instances/toy-n5-k2.vrp
+
+algorithms:
+  - id: qpso
+    params: { swarm_size: 30, max_iterations: 200 }
+  - id: qgpso                       # PDF Deliverable 3: quantum rotation-gate
+    params: { population_size: 30, max_iterations: 200 }
+  - id: pso
+    params: { swarm_size: 30, max_iterations: 200 }
+  - id: ortools
+    params: { time_limit_s: 3 }
+
+seeds: 10                           # -> seeds 1..10  (use 30 for a real study)
+
+objective: travel-time
+repair: true
+
+termination:
+  max_iterations: 200
+  time_budget_s: null
+
+report_target_gap: 0.02            # "time to reach within 2% of best-known"
+
+output_dir: ../runs/phase0-cvrp-smoke   # relative -> anchored to this file's directory (-> quantroute/runs/)

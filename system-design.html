@@ -1,0 +1,1600 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>QuantRoute System Design</title>
+<meta name="description" content="HLD + LLD for a quantum-inspired (QPSO) traffic route optimization platform, built on an open-source stack with MNC-grade security." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" />
+
+<style>
+  :root {
+    /* light palette — cool paper, quantum teal, signal amber */
+    --bg: #eceff3;
+    --surface: #ffffff;
+    --surface-2: #f4f6f9;
+    --surface-3: #eef1f5;
+    --ink: #1a2330;
+    --ink-soft: #384456;
+    --muted: #5d6b7a;
+    --faint: #8593a2;
+    --line: #d5dce4;
+    --line-soft: #e4e9ef;
+    --accent: #0f7d88;        /* quantum teal — primary */
+    --accent-ink: #0b5f68;
+    --accent-wash: #e2f0f1;
+    --amber: #c86a0c;         /* signal amber — decisions / emphasis */
+    --amber-wash: #f8ecdd;
+    --good: #2c8a5b;
+    --warn: #b07d12;
+    --crit: #c1423a;
+    --good-wash: #e5f1ea;
+    --warn-wash: #f6efdd;
+    --crit-wash: #f6e5e3;
+
+    --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --f-body: "IBM Plex Sans", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --step--1: 0.82rem;
+    --step-0: 0.97rem;
+    --step-1: 1.15rem;
+    --step-2: 1.42rem;
+    --step-3: 1.9rem;
+    --step-4: 2.6rem;
+
+    --maxw: 1000px;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(20, 30, 45, 0.06), 0 8px 24px -12px rgba(20, 30, 45, 0.12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1218;
+      --surface: #141b23;
+      --surface-2: #1a222c;
+      --surface-3: #202a35;
+      --ink: #e7ecf2;
+      --ink-soft: #c4cdd8;
+      --muted: #9aa7b4;
+      --faint: #6f7d8b;
+      --line: #2b3540;
+      --line-soft: #232d38;
+      --accent: #2fb6c3;
+      --accent-ink: #7fd6de;
+      --accent-wash: #123037;
+      --amber: #e5972f;
+      --amber-wash: #33260f;
+      --good: #46b07a;
+      --warn: #d7a63f;
+      --crit: #e2685f;
+      --good-wash: #16281f;
+      --warn-wash: #2c2410;
+      --crit-wash: #2e1a18;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px -14px rgba(0, 0, 0, 0.6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0d1218;
+    --surface: #141b23;
+    --surface-2: #1a222c;
+    --surface-3: #202a35;
+    --ink: #e7ecf2;
+    --ink-soft: #c4cdd8;
+    --muted: #9aa7b4;
+    --faint: #6f7d8b;
+    --line: #2b3540;
+    --line-soft: #232d38;
+    --accent: #2fb6c3;
+    --accent-ink: #7fd6de;
+    --accent-wash: #123037;
+    --amber: #e5972f;
+    --amber-wash: #33260f;
+    --good: #46b07a;
+    --warn: #d7a63f;
+    --crit: #e2685f;
+    --good-wash: #16281f;
+    --warn-wash: #2c2410;
+    --crit-wash: #2e1a18;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px -14px rgba(0, 0, 0, 0.6);
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: var(--step-0);
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; animation: none !important; }
+  }
+
+  a { color: var(--accent-ink); }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.65rem clamp(1rem, 3vw, 2rem);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar .mark {
+    font-family: var(--f-display);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    font-size: var(--step-1);
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+  .mark .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-wash);
+    flex: none;
+  }
+  .topbar .meta {
+    font-family: var(--f-mono);
+    font-size: var(--step--1);
+    color: var(--muted);
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+  .topbar .meta span { display: none; }
+  @media (min-width: 720px) { .topbar .meta span { display: inline; } }
+
+  .toggle {
+    font-family: var(--f-mono);
+    font-size: var(--step--1);
+    background: var(--surface);
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+  }
+  .toggle:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+  /* ---------- shell ---------- */
+  .shell {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 0 clamp(1rem, 3vw, 2rem);
+  }
+  @media (min-width: 1040px) {
+    .shell { grid-template-columns: 244px minmax(0, 1fr); gap: 3rem; }
+  }
+
+  /* ---------- nav ---------- */
+  .toc {
+    align-self: start;
+    padding: 1.4rem 0;
+  }
+  @media (min-width: 1040px) {
+    .toc {
+      position: sticky;
+      top: 56px;
+      max-height: calc(100vh - 64px);
+      overflow-y: auto;
+    }
+  }
+  .toc > summary {
+    font-family: var(--f-mono);
+    font-size: var(--step--1);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.6rem 0.2rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    list-style: none;
+  }
+  .toc > summary::-webkit-details-marker { display: none; }
+  .toc ol {
+    list-style: none;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    counter-reset: toc;
+  }
+  .toc li { margin: 0; }
+  .toc a {
+    display: block;
+    text-decoration: none;
+    color: var(--muted);
+    font-size: var(--step--1);
+    padding: 0.32rem 0.5rem 0.32rem 2.4rem;
+    border-radius: 6px;
+    position: relative;
+    line-height: 1.4;
+  }
+  .toc a::before {
+    counter-increment: toc;
+    content: counter(toc, decimal-leading-zero);
+    position: absolute;
+    left: 0.5rem;
+    font-family: var(--f-mono);
+    color: var(--faint);
+  }
+  .toc a:hover { color: var(--ink); background: var(--surface-2); }
+  .toc a.active {
+    color: var(--accent-ink);
+    background: var(--accent-wash);
+    font-weight: 600;
+  }
+  .toc a.active::before { color: var(--accent); }
+
+  @media (min-width: 1040px) {
+    .toc > summary { display: none; }
+    .toc[open] ol, .toc ol { display: block; }
+  }
+
+  /* ---------- main ---------- */
+  main {
+    padding: 1.4rem 0 6rem;
+    min-width: 0;
+  }
+
+  .hero {
+    padding: 1.5rem 0 2.4rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 2.6rem;
+  }
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: var(--step--1);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent-ink);
+    margin: 0 0 0.9rem;
+  }
+  .hero h1 {
+    font-family: var(--f-display);
+    font-weight: 800;
+    font-size: clamp(2rem, 5vw, var(--step-4));
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.8rem;
+    text-wrap: balance;
+  }
+  .hero .lede {
+    font-size: var(--step-1);
+    color: var(--ink-soft);
+    max-width: 60ch;
+    margin: 0 0 1.6rem;
+  }
+  .factbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .factbar .chip {
+    font-family: var(--f-mono);
+    font-size: var(--step--1);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    color: var(--ink-soft);
+  }
+  .factbar .chip b { color: var(--accent-ink); font-weight: 600; }
+
+  .pipe {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0.4rem;
+    margin-top: 1.6rem;
+  }
+  .pipe .stage {
+    flex: 1 1 130px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.6rem 0.7rem;
+  }
+  .pipe .stage .n {
+    font-family: var(--f-mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+  }
+  .pipe .stage .t {
+    font-weight: 600;
+    font-size: var(--step--1);
+    display: block;
+    margin-top: 0.15rem;
+  }
+  .pipe .stage .d {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  section { scroll-margin-top: 72px; margin-bottom: 3.4rem; }
+
+  h2 {
+    font-family: var(--f-display);
+    font-weight: 800;
+    font-size: var(--step-3);
+    letter-spacing: -0.015em;
+    line-height: 1.15;
+    margin: 0 0 0.4rem;
+    padding-top: 0.6rem;
+    text-wrap: balance;
+  }
+  h2 .num {
+    font-family: var(--f-mono);
+    font-size: var(--step-1);
+    color: var(--accent);
+    font-weight: 500;
+    margin-right: 0.6rem;
+  }
+  h3 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: var(--step-1);
+    letter-spacing: -0.01em;
+    margin: 2rem 0 0.5rem;
+  }
+  h4 {
+    font-family: var(--f-mono);
+    font-weight: 600;
+    font-size: var(--step--1);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 1.4rem 0 0.4rem;
+  }
+  .section-intro {
+    color: var(--muted);
+    max-width: 68ch;
+    margin: 0 0 1.4rem;
+  }
+  p { max-width: 70ch; }
+  ul, ol { max-width: 70ch; padding-left: 1.2rem; }
+  li { margin: 0.3rem 0; }
+  li::marker { color: var(--faint); }
+
+  strong { color: var(--ink); font-weight: 600; }
+  code {
+    font-family: var(--f-mono);
+    font-size: 0.86em;
+    background: var(--surface-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 0.08em 0.35em;
+  }
+
+  /* ---------- reusable blocks ---------- */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1.2rem 1.3rem;
+    margin: 1.4rem 0;
+    box-shadow: var(--shadow);
+  }
+  .panel > h4:first-child { margin-top: 0; }
+
+  .grid-2 { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  @media (min-width: 680px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+  .grid-3 { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  @media (min-width: 680px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+  }
+  .card h4 { margin-top: 0; color: var(--accent-ink); }
+  .card p, .card ul { font-size: var(--step--1); margin: 0.3rem 0 0; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--surface-2);
+    border-radius: 0 8px 8px 0;
+    padding: 0.8rem 1rem;
+    margin: 1.2rem 0;
+    font-size: var(--step--1);
+  }
+  .callout .tag {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    display: block;
+    margin-bottom: 0.2rem;
+    color: var(--accent-ink);
+  }
+  .callout.risk { border-left-color: var(--crit); background: var(--crit-wash); }
+  .callout.risk .tag { color: var(--crit); }
+  .callout.sec { border-left-color: var(--amber); background: var(--amber-wash); }
+  .callout.sec .tag { color: var(--amber); }
+  .callout.ok { border-left-color: var(--good); background: var(--good-wash); }
+  .callout.ok .tag { color: var(--good); }
+
+  /* trade-off block */
+  .tradeoff { margin: 1.4rem 0; }
+  .tradeoff .opts {
+    display: grid;
+    gap: 0;
+    grid-template-columns: 1fr;
+    border: 1px solid var(--line);
+    border-radius: var(--radius) var(--radius) 0 0;
+    overflow: hidden;
+  }
+  @media (min-width: 680px) { .tradeoff .opts { grid-template-columns: 1fr 1fr; } }
+  .tradeoff .opt { padding: 0.9rem 1.1rem; background: var(--surface); }
+  .tradeoff .opt + .opt { border-top: 1px solid var(--line); }
+  @media (min-width: 680px) {
+    .tradeoff .opt + .opt { border-top: 0; border-left: 1px solid var(--line); }
+  }
+  .tradeoff .opt .label {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+  }
+  .tradeoff .opt p { font-size: var(--step--1); margin: 0.3rem 0 0; }
+  .tradeoff .decision {
+    background: var(--amber-wash);
+    border: 1px solid var(--amber);
+    border-top: 0;
+    border-radius: 0 0 var(--radius) var(--radius);
+    padding: 0.8rem 1.1rem;
+    font-size: var(--step--1);
+  }
+  .tradeoff .decision b {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--amber);
+    display: block;
+    margin-bottom: 0.15rem;
+  }
+
+  /* tables */
+  .tw { overflow-x: auto; margin: 1.3rem 0; border: 1px solid var(--line); border-radius: var(--radius); }
+  table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+  th, td { text-align: left; padding: 0.6rem 0.8rem; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+  th {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    background: var(--surface-2);
+    position: sticky;
+    top: 0;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: var(--surface-2); }
+  td code { white-space: nowrap; }
+  .mono-col { font-family: var(--f-mono); font-size: 0.82rem; white-space: nowrap; }
+
+  /* code block */
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-family: var(--f-mono);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: var(--ink-soft);
+    margin: 1.2rem 0;
+  }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--accent-ink); font-weight: 600; }
+
+  /* diagram frame */
+  figure {
+    margin: 1.6rem 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1.2rem;
+  }
+  figure .scroll { overflow-x: auto; }
+  figcaption {
+    font-size: var(--step--1);
+    color: var(--muted);
+    margin-top: 0.8rem;
+    padding-top: 0.7rem;
+    border-top: 1px dashed var(--line);
+  }
+  figcaption b { color: var(--ink-soft); font-weight: 600; }
+
+  /* layered container diagram */
+  .layers { display: flex; flex-direction: column; gap: 0.55rem; min-width: 560px; }
+  .layer {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 0.7rem;
+    align-items: stretch;
+  }
+  .layer .lname {
+    font-family: var(--f-mono);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+  }
+  .layer .lboxes { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .lbox {
+    flex: 1 1 120px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 0.5rem 0.6rem;
+    background: var(--surface-2);
+    font-size: 0.8rem;
+    line-height: 1.35;
+  }
+  .lbox b { display: block; font-size: 0.82rem; }
+  .lbox span { color: var(--muted); font-size: 0.72rem; font-family: var(--f-mono); }
+  .lbox.core { background: var(--accent-wash); border-color: var(--accent); }
+  .lbox.edge { background: var(--amber-wash); border-color: var(--amber); }
+  .layer-flow {
+    text-align: center;
+    font-family: var(--f-mono);
+    font-size: 0.7rem;
+    color: var(--faint);
+    padding: 0.1rem 0;
+  }
+
+  /* class cards */
+  .classcard {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface);
+    font-size: 0.8rem;
+  }
+  .classcard .cc-h {
+    background: var(--surface-3);
+    padding: 0.45rem 0.7rem;
+    font-family: var(--f-mono);
+    font-weight: 600;
+    border-bottom: 1px solid var(--line);
+  }
+  .classcard .cc-h span { color: var(--muted); font-weight: 400; }
+  .classcard ul { margin: 0; padding: 0.55rem 0.7rem 0.6rem 1.4rem; max-width: none; }
+  .classcard li { margin: 0.15rem 0; font-family: var(--f-mono); font-size: 0.74rem; color: var(--ink-soft); }
+
+  /* step flow */
+  .steps { counter-reset: step; list-style: none; padding: 0; margin: 1.3rem 0; }
+  .steps li {
+    position: relative;
+    padding: 0.55rem 0 0.75rem 2.6rem;
+    border-bottom: 1px dashed var(--line);
+  }
+  .steps li:last-child { border-bottom: 0; }
+  .steps li::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0.5rem;
+    width: 1.8rem; height: 1.8rem;
+    display: grid; place-items: center;
+    background: var(--accent-wash);
+    color: var(--accent-ink);
+    border: 1px solid var(--accent);
+    border-radius: 50%;
+    font-family: var(--f-mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .steps .hop {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    color: var(--amber);
+    display: inline-block;
+    margin-bottom: 0.1rem;
+  }
+
+  /* illustrative chart */
+  .chart-lbl { fill: var(--muted); font-family: var(--f-mono); font-size: 10px; }
+  .chart-ax { stroke: var(--line); stroke-width: 1; }
+  .chart-q { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+  .chart-p { stroke: var(--muted); stroke-width: 2; fill: none; stroke-dasharray: 5 4; }
+  .chart-bks { stroke: var(--amber); stroke-width: 1.4; stroke-dasharray: 2 3; }
+
+  hr.soft { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+
+  .lede-sm { color: var(--muted); font-size: var(--step--1); }
+
+  .footer {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 2rem clamp(1rem, 3vw, 2rem) 4rem;
+    border-top: 1px solid var(--line);
+    font-size: var(--step--1);
+    color: var(--muted);
+  }
+  .footer code { font-size: 0.8em; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+</style>
+
+<header class="topbar">
+  <div class="mark"><span class="dot" aria-hidden="true"></span> QuantRoute</div>
+  <div class="meta">
+    <span>System Design &mdash; HLD + LLD</span>
+    <span>v0.1 &middot; SIH26137</span>
+    <button class="toggle" id="themeToggle" type="button" aria-label="Toggle colour theme">◐ theme</button>
+  </div>
+</header>
+
+<div class="shell">
+  <details class="toc" id="toc" open>
+    <summary>Contents</summary>
+    <nav aria-label="Section navigation">
+      <ol>
+        <li><a href="#scope">Scope, actors &amp; the one-line goal</a></li>
+        <li><a href="#functional">Functional requirements</a></li>
+        <li><a href="#nfr">Non-functional requirements &amp; SLOs</a></li>
+        <li><a href="#capacity">Back-of-envelope capacity estimation</a></li>
+        <li><a href="#api">API design</a></li>
+        <li><a href="#hld">High-level design</a></li>
+        <li><a href="#data">Data model</a></li>
+        <li><a href="#deep">Deep dives</a></li>
+        <li><a href="#lld">Low-level design</a></li>
+        <li><a href="#security">Security (MNC-grade)</a></li>
+        <li><a href="#observability">Observability</a></li>
+        <li><a href="#infra">Deployment &amp; infrastructure</a></li>
+        <li><a href="#bottlenecks">Bottlenecks, SPOFs &amp; trade-offs</a></li>
+        <li><a href="#benchmark">Benchmarking methodology</a></li>
+        <li><a href="#stack">Open-source tech stack</a></li>
+        <li><a href="#roadmap">Implementation roadmap</a></li>
+      </ol>
+    </nav>
+  </details>
+
+  <main>
+    <div class="hero">
+      <p class="eyebrow">AICTE SIH 2026 &middot; Quantum Technology Vertical &middot; PS-1 / SIH26137</p>
+      <h1>Quantum-inspired traffic route optimization &mdash; a build-ready blueprint</h1>
+      <p class="lede">
+        One platform that models a city as a live weighted graph and, under changing traffic,
+        returns near-optimal vehicle routes using a Quantum Particle Swarm Optimizer &mdash;
+        benchmarked against classical metaheuristics and exact solvers. Everything below is
+        scoped so the next step is code.
+      </p>
+      <div class="factbar">
+        <span class="chip"><b>Core engine</b> QPSO (anytime)</span>
+        <span class="chip"><b>Graph</b> OSM &rarr; PostGIS + contraction hierarchies</span>
+        <span class="chip"><b>Stack</b> 100% open-source, OSI-licence clean</span>
+        <span class="chip"><b>Security</b> OIDC &middot; mTLS &middot; OPA &middot; signed supply chain</span>
+        <span class="chip"><b>Modes</b> operational &amp; reproducible-experiment</span>
+      </div>
+
+      <div class="pipe" role="list" aria-label="Request pipeline at a glance">
+        <div class="stage" role="listitem"><span class="n">01</span><span class="t">Ingest</span><span class="d">network, fleet, constraints, live traffic</span></div>
+        <div class="stage" role="listitem"><span class="n">02</span><span class="t">Build graph</span><span class="d">weighted, CH-indexed, versioned</span></div>
+        <div class="stage" role="listitem"><span class="n">03</span><span class="t">Weight epochs</span><span class="d">streaming updates, immutable snapshots</span></div>
+        <div class="stage" role="listitem"><span class="n">04</span><span class="t">Formulate</span><span class="d">objective + penalised constraints</span></div>
+        <div class="stage" role="listitem"><span class="n">05</span><span class="t">QPSO solve</span><span class="d">distributed swarm, repair, anytime best</span></div>
+        <div class="stage" role="listitem"><span class="n">06</span><span class="t">Serve + loop</span><span class="d">routes, metrics, re-optimize on change</span></div>
+      </div>
+    </div>
+
+    <!-- 1 -->
+    <section id="scope">
+      <h2><span class="num">01</span>Scope, actors &amp; the one-line goal</h2>
+      <p class="section-intro">
+        Before boxes and arrows: who touches this system, what they push a button to get, and
+        the single sentence the whole design serves.
+      </p>
+
+      <div class="callout ok">
+        <span class="tag">The goal in one line</span>
+        Given a city graph with live edge weights and a fleet with constraints, produce
+        near-optimal routes fast enough to act on, prove with benchmarks that QPSO converges
+        better and cheaper than classical baselines, and keep re-solving as traffic moves.
+      </div>
+
+      <h3>Actors</h3>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Actor</th><th>Type</th><th>What they do with it</th><th>Interface</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Fleet / logistics operator</strong> (dispatcher)</td><td>Human, primary</td><td>Upload vehicles, depots, stops, constraints; run and re-run multi-vehicle optimization; watch routes on a map</td><td>Web dashboard + REST</td></tr>
+            <tr><td><strong>Driver / commuter</strong></td><td>Human, primary</td><td>Ask for a single traffic-aware fastest path A&rarr;B with ETA</td><td>Thin client / <code>POST /v1/route</code></td></tr>
+            <tr><td><strong>Traffic authority / city planner</strong></td><td>Human</td><td>Network-wide congestion view; what-if simulation (close a road, shift demand) and see the effect</td><td>Dashboard &ldquo;simulation mode&rdquo;</td></tr>
+            <tr><td><strong>Platform admin / operator</strong></td><td>Human</td><td>Wire data sources, tune QPSO params, set quotas, watch health</td><td>Admin console + CLI</td></tr>
+            <tr><td><strong>Researcher / evaluator</strong> (incl. SIH judge)</td><td>Human</td><td>Run reproducible benchmarks: dataset &times; algorithm matrix, convergence curves, statistical tests</td><td>Batch CLI / <code>POST /v1/benchmark/run</code></td></tr>
+            <tr><td><strong>Traffic data source</strong></td><td>System</td><td>Streams segment speeds / incident events that drive edge-weight updates</td><td>Kafka topic / SUMO&nbsp;TraCI</td></tr>
+            <tr><td><strong>Map / GIS provider</strong></td><td>System</td><td>Supplies base road topology &amp; geometry</td><td>OSM extract (batch import)</td></tr>
+            <tr><td><strong>Downstream app / API consumer</strong></td><td>System</td><td>Calls the routing API from a mobile app, TMS or ERP</td><td>REST + gRPC, scoped token</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>In scope / out of scope</h3>
+      <div class="grid-2">
+        <div class="card">
+          <h4>In scope</h4>
+          <ul>
+            <li>Weighted-graph network model with dynamic weights</li>
+            <li>VRP / CVRP / VRPTW + single-pair shortest path</li>
+            <li>QPSO engine + pluggable classical baselines</li>
+            <li>Async optimization service, map UI, benchmark harness</li>
+            <li>AuthN/Z, rate limiting, audit, observability</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Out of scope (v1)</h4>
+          <ul>
+            <li>Traffic <em>prediction</em> models (we consume speeds, not forecast them)</li>
+            <li>Turn-by-turn voice navigation / last-metre guidance</li>
+            <li>Real quantum-hardware execution (QPSO is classical, quantum-inspired)</li>
+            <li>Payments, driver HR, billing</li>
+            <li>Multi-region active-active (single region + DR in v1)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section id="functional">
+      <h2><span class="num">02</span>Functional requirements</h2>
+      <p class="section-intro">What the system must be able to <em>do</em>. Numbered so LLD and tests can cite them.</p>
+      <ol>
+        <li><strong>FR-1 Import a network.</strong> Ingest an OSM extract for a city &rarr; build a directed weighted graph (nodes = intersections/depots, edges = road segments with length, free-flow time, capacity, road class). Produce a versioned contraction-hierarchy (CH) build.</li>
+        <li><strong>FR-2 Keep weights live.</strong> Consume a stream of segment speeds / incidents and update edge travel-time weights; expose the current weight set as an immutable, versioned <em>epoch</em>.</li>
+        <li><strong>FR-3 Solve a VRP.</strong> Accept a problem spec (fleet size &amp; capacity, depot(s), stops, time windows, max route duration, objective, time budget) and return one route per vehicle that visits every stop once.</li>
+        <li><strong>FR-4 Solve shortest path.</strong> Return a traffic-aware fastest path and ETA for a single origin&ndash;destination pair, synchronously.</li>
+        <li><strong>FR-5 Anytime results.</strong> While solving, publish the best-so-far solution and its cost; a caller with a 200&nbsp;ms budget still gets a usable answer.</li>
+        <li><strong>FR-6 Re-optimize on change.</strong> When weights change materially or a stop is added/cancelled, re-solve using the previous solution as a warm start; report the delta.</li>
+        <li><strong>FR-7 Constraint handling.</strong> Enforce capacity, time windows and route-duration limits; never return an infeasible route silently &mdash; either repair it or flag the violation.</li>
+        <li><strong>FR-8 Pluggable algorithms.</strong> Same problem spec runnable through QPSO, PSO, GA, ACO, and OR-Tools / exact CH, selected by config.</li>
+        <li><strong>FR-9 Benchmark.</strong> Run a dataset &times; algorithm &times; seed matrix; emit per-run metrics, convergence traces and a statistical comparison report.</li>
+        <li><strong>FR-10 Visualize.</strong> Render routes and congestion on a map; show cost breakdown (time, distance, load, violations) and a convergence chart.</li>
+        <li><strong>FR-11 Simulation mode.</strong> Drive weights from SUMO instead of a live feed; let a planner edit the network and demand and compare scenarios.</li>
+        <li><strong>FR-12 Multi-tenant isolation.</strong> A tenant sees only its own networks, jobs and results; quotas are enforced per tenant.</li>
+      </ol>
+    </section>
+
+    <!-- 3 -->
+    <section id="nfr">
+      <h2><span class="num">03</span>Non-functional requirements &amp; SLOs</h2>
+      <p class="section-intro">The numbers the architecture is actually shaped by.</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Attribute</th><th>Target</th><th>Why / how</th></tr></thead>
+          <tbody>
+            <tr><td>Shortest-path latency</td><td>p50 &lt; 15&nbsp;ms, p99 &lt; 60&nbsp;ms</td><td>CH query on in-RAM graph; served from route cache when warm</td></tr>
+            <tr><td>VRP first useful answer</td><td>&le; 200&nbsp;ms (anytime best)</td><td>Time-budgeted QPSO; return incumbent, keep refining</td></tr>
+            <tr><td>VRP &ldquo;good&rdquo; answer (&le;2% gap)</td><td>1&ndash;5&nbsp;s for 50&ndash;200 stops</td><td>Distributed fitness evaluation across worker cores</td></tr>
+            <tr><td>Weight staleness</td><td>&lt; 45&nbsp;s from source event to usable epoch</td><td>Streaming pipeline + fast epoch publish</td></tr>
+            <tr><td>Availability (routing API)</td><td>99.9% monthly</td><td>Stateless services, N+1 replicas, HA datastores</td></tr>
+            <tr><td>Consistency</td><td>Strong for job state; eventual (bounded) for weights</td><td>Prefer availability under partition &mdash; a slightly stale route beats no route</td></tr>
+            <tr><td>Scale (v1 target)</td><td>1 metro, ~2&times;10<sup>5</sup> nodes / 5&times;10<sup>5</sup> edges, 5k active vehicles, 250 rps peak</td><td>See capacity estimation</td></tr>
+            <tr><td>Scalability</td><td>Linear worker scale-out to 10&times; load; add cities without redesign</td><td>Graph replicated per worker; jobs sharded by city + tenant</td></tr>
+            <tr><td>Reproducibility</td><td>Bit-stable benchmark runs from a pinned config + seed</td><td>Container digest, seed log, immutable dataset hash</td></tr>
+            <tr><td>Security &amp; compliance</td><td>OWASP ASVS L2, DPDP/GDPR for GPS data, signed artifacts</td><td>See &sect;10</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <span class="tag">CAP stance</span>
+        The routing plane is <strong>AP</strong>: if the weight pipeline or a datastore is partitioned,
+        keep serving routes from the last good epoch and mark them stale. The control plane
+        (job lifecycle, benchmarks, audit) is <strong>CP</strong>: it will reject writes rather than
+        accept conflicting state.
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section id="capacity">
+      <h2><span class="num">04</span>Back-of-envelope capacity estimation</h2>
+      <p class="section-intro">
+        Rough figures for one metro. The point is the method and the order of magnitude, not
+        three-digit precision.
+      </p>
+
+      <h4>Graph size &amp; memory</h4>
+      <ul>
+        <li>OSM metro extract &asymp; <strong>2&times;10<sup>5</sup> nodes</strong>, <strong>5&times;10<sup>5</sup> directed edges</strong>.</li>
+        <li>Per edge: <code>src, dst, length, free_flow_t, live_t, class, flags</code> &asymp; 64&nbsp;B &rarr; <strong>~32&nbsp;MB</strong> base.</li>
+        <li>CH shortcuts inflate edges ~3&times; &rarr; <strong>~100&nbsp;MB</strong> resident graph. Comfortably fits in RAM &rarr; <em>replicate the whole graph to every worker</em>; no distributed graph store on the hot path.</li>
+      </ul>
+
+      <h4>Traffic ingestion</h4>
+      <ul>
+        <li>Speeds update for ~20% of edges every 30&nbsp;s &rarr; 10<sup>5</sup> updates / 30&nbsp;s &asymp; <strong>~3.3k msg/s</strong>, ~100&nbsp;B each &asymp; 330&nbsp;KB/s. Trivial for Kafka; one partition per city is enough.</li>
+        <li>Raw GPS probe retention: 7 days, then aggregate to segment speeds and drop raw &mdash; ~28&nbsp;GB/day raw &rarr; downsampled to ~1&nbsp;GB/day.</li>
+      </ul>
+
+      <h4>Optimization load</h4>
+      <ul>
+        <li>5,000 vehicles, mean re-plan every 5&nbsp;min &rarr; 5000&nbsp;/&nbsp;300 &asymp; <strong>~17 VRP req/s</strong>; plus ~200 rps ad-hoc shortest-path at peak.</li>
+        <li>One 50-stop QPSO run: 40 particles &times; 300 iters &times; fitness eval (~50 CH matrix lookups @ ~5&nbsp;&micro;s) &asymp; <strong>~3 CPU-s</strong> single-thread &rarr; ~0.5&nbsp;s wall on 8 cores.</li>
+        <li>Steady compute: 17 &times; 0.5 &asymp; <strong>9 cores</strong>; 3&times; peak &rarr; ~30 cores &rarr; <strong>~4 worker nodes</strong> (8 vCPU) with autoscale headroom.</li>
+      </ul>
+
+      <h4>Storage</h4>
+      <ul>
+        <li>Solution bundle ~5&nbsp;KB. 17/s &times; 86,400 &asymp; 1.5M/day &rarr; <strong>~7.5&nbsp;GB/day</strong>; 30&ndash;90 day retention in TimescaleDB + object store.</li>
+        <li>CH graph builds: ~150&nbsp;MB each, keep last ~5 per city in object storage.</li>
+        <li>Benchmark artifacts: bursty, ~GBs per campaign, cold storage.</li>
+      </ul>
+
+      <div class="callout ok">
+        <span class="tag">What the numbers tell the design</span>
+        The graph is small enough to replicate, so the hard problem is <em>CPU for the swarm</em>,
+        not data distribution. Scale = &ldquo;add stateless workers,&rdquo; and the queue depth is the
+        autoscaling signal.
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section id="api">
+      <h2><span class="num">05</span>API design</h2>
+      <p class="section-intro">
+        External REST (JSON, RFC&nbsp;7807 errors) for clients; internal gRPC for the hot path
+        between orchestrator, graph service and workers.
+      </p>
+
+      <h4>External REST</h4>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Endpoint</th><th>Purpose</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="mono-col">POST /v1/networks</td><td>Register / import a city from an OSM extract</td><td>Async; returns <code>build_id</code>. Scope <code>network:write</code></td></tr>
+            <tr><td class="mono-col">GET /v1/networks/{city}</td><td>Metadata: bbox, OSM version, current CH build, current weight epoch</td><td>Scope <code>network:read</code></td></tr>
+            <tr><td class="mono-col">GET /v1/networks/{city}/weights/stream</td><td>Server-sent events of epoch changes + summary stats</td><td>Backpressure via <code>Last-Event-ID</code></td></tr>
+            <tr><td class="mono-col">POST /v1/route</td><td>Synchronous traffic-aware shortest path + ETA</td><td>Body: <code>{city, origin, dest, depart_at?}</code>. p99 &lt; 60&nbsp;ms</td></tr>
+            <tr><td class="mono-col">POST /v1/optimize</td><td>Submit a VRP job</td><td>Async &rarr; <code>202 {job_id}</code>. <code>Idempotency-Key</code> header. Scope <code>optimize:write</code></td></tr>
+            <tr><td class="mono-col">GET /v1/optimize/{job_id}</td><td>Job status + best-so-far solution + convergence trace</td><td>Long-poll or SSE. Anytime incumbent always present once <code>running</code></td></tr>
+            <tr><td class="mono-col">POST /v1/optimize/{job_id}:cancel</td><td>Stop refining, freeze incumbent</td><td>Idempotent</td></tr>
+            <tr><td class="mono-col">POST /v1/optimize/{job_id}:reoptimize</td><td>Re-solve with edits (add/cancel stop, new epoch) using warm start</td><td>Returns new <code>job_id</code> linked to parent</td></tr>
+            <tr><td class="mono-col">POST /v1/benchmark/run</td><td>Dataset &times; algorithm &times; seed matrix</td><td>Scope <code>benchmark:run</code>. Returns <code>campaign_id</code></td></tr>
+            <tr><td class="mono-col">GET /v1/benchmark/{campaign_id}</td><td>Aggregated results, curves, significance tests</td><td>CSV + JSON</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Sample &mdash; submit a VRP</h4>
+      <pre><span class="c"># POST /v1/optimize</span>
+<span class="c"># Authorization: Bearer &lt;JWT, scope=optimize:write&gt;</span>
+<span class="c"># Idempotency-Key: 6b1f...c2</span>
+{
+  <span class="k">"city"</span>: <span class="k">"pune"</span>,
+  <span class="k">"objective"</span>: <span class="k">"min_total_travel_time"</span>,
+  <span class="k">"time_budget_ms"</span>: 3000,
+  <span class="k">"algorithm"</span>: <span class="k">"qpso"</span>,
+  <span class="k">"fleet"</span>: [{ <span class="k">"id"</span>: <span class="k">"v1"</span>, <span class="k">"capacity"</span>: 120, <span class="k">"start_depot"</span>: <span class="k">"d1"</span>, <span class="k">"shift_end"</span>: <span class="k">"2026-09-09T18:00:00Z"</span> }],
+  <span class="k">"depots"</span>: [{ <span class="k">"id"</span>: <span class="k">"d1"</span>, <span class="k">"node"</span>: 84213 }],
+  <span class="k">"stops"</span>: [
+    { <span class="k">"id"</span>: <span class="k">"s1"</span>, <span class="k">"node"</span>: 11902, <span class="k">"demand"</span>: 18, <span class="k">"window"</span>: [<span class="k">"09:00"</span>, <span class="k">"12:00"</span>], <span class="k">"service_s"</span>: 300 }
+  ],
+  <span class="k">"constraints"</span>: { <span class="k">"max_route_minutes"</span>: 480 }
+}
+
+<span class="c"># 202 Accepted</span>
+{ <span class="k">"job_id"</span>: <span class="k">"job_01J..."</span>, <span class="k">"status"</span>: <span class="k">"queued"</span>, <span class="k">"poll"</span>: <span class="k">"/v1/optimize/job_01J..."</span> }</pre>
+
+      <h4>Internal gRPC (hot path)</h4>
+      <ul>
+        <li><code>GraphService.ShortestPath(city, build, epoch, o, d) &rarr; path, cost</code></li>
+        <li><code>GraphService.Matrix(city, build, epoch, nodes[]) &rarr; time_matrix</code> &mdash; many-to-many, batched</li>
+        <li><code>Optimizer.EvaluateBatch(problem_ref, candidates[]) &rarr; costs[]</code> &mdash; stateless fitness for parallel eval</li>
+      </ul>
+      <div class="callout sec">
+        <span class="tag">API security defaults</span>
+        Every route requires a scoped OIDC JWT; write endpoints require an <code>Idempotency-Key</code>;
+        request bodies are schema-validated at the gateway; per-tenant rate limits and a hard
+        <code>time_budget_ms</code> ceiling stop a caller from buying the whole worker pool.
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section id="hld">
+      <h2><span class="num">06</span>High-level design</h2>
+      <p class="section-intro">
+        Stateless request/API tier at the edge, an async job plane, a CPU-heavy optimization
+        plane, and a streaming weight pipeline feeding an in-RAM graph. Data stores at the bottom.
+      </p>
+
+      <figure>
+        <div class="scroll">
+          <div class="layers">
+            <div class="layer">
+              <div class="lname">Clients</div>
+              <div class="lboxes">
+                <div class="lbox"><b>Operator dashboard</b><span>React + MapLibre</span></div>
+                <div class="lbox"><b>Driver / consumer app</b><span>REST client</span></div>
+                <div class="lbox"><b>Planner &mdash; sim mode</b><span>scenario UI</span></div>
+                <div class="lbox"><b>Researcher CLI</b><span>benchmark runner</span></div>
+              </div>
+            </div>
+            <div class="layer-flow">&darr; HTTPS / TLS 1.3</div>
+            <div class="layer">
+              <div class="lname">Edge</div>
+              <div class="lboxes">
+                <div class="lbox edge"><b>API Gateway</b><span>APISIX &mdash; authN, rate limit, schema, WAF</span></div>
+                <div class="lbox edge"><b>Identity</b><span>Keycloak OIDC + OPA authZ</span></div>
+              </div>
+            </div>
+            <div class="layer-flow">&darr; gRPC / mTLS (Linkerd mesh)</div>
+            <div class="layer">
+              <div class="lname">Services</div>
+              <div class="lboxes">
+                <div class="lbox"><b>Routing Orchestrator</b><span>job lifecycle, warm starts, anytime fan-in</span></div>
+                <div class="lbox core"><b>Graph Service</b><span>in-RAM CH graph, ShortestPath, Matrix</span></div>
+                <div class="lbox"><b>Network Builder</b><span>OSM import &rarr; PostGIS &rarr; CH build</span></div>
+                <div class="lbox"><b>Benchmark Service</b><span>campaign matrix, stats, artifacts</span></div>
+                <div class="lbox"><b>Weight Updater</b><span>stream &rarr; epoch snapshots</span></div>
+              </div>
+            </div>
+            <div class="layer-flow">&darr; job queue (enqueue) &nbsp;/&nbsp; &uarr; anytime incumbent (pub/sub)</div>
+            <div class="layer">
+              <div class="lname">Compute</div>
+              <div class="lboxes">
+                <div class="lbox core"><b>QPSO Worker Pool</b><span>swarm iter + repair, replicated graph</span></div>
+                <div class="lbox core"><b>Fitness Eval Actors</b><span>Ray &mdash; parallel candidate costing</span></div>
+                <div class="lbox"><b>Baseline Solvers</b><span>PSO / GA / ACO / OR-Tools</span></div>
+              </div>
+            </div>
+            <div class="layer-flow">&darr; read/write</div>
+            <div class="layer">
+              <div class="lname">Data</div>
+              <div class="lboxes">
+                <div class="lbox"><b>PostgreSQL + PostGIS</b><span>graph, jobs, tenants (Patroni HA)</span></div>
+                <div class="lbox"><b>TimescaleDB</b><span>weight history, solution metrics</span></div>
+                <div class="lbox"><b>Valkey</b><span>route cache, job state, epoch pointer</span></div>
+                <div class="lbox"><b>Kafka</b><span>traffic events, domain events</span></div>
+                <div class="lbox"><b>MinIO</b><span>CH builds, datasets, result bundles</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          <b>Container view.</b> Teal = latency-critical, replicated, in-RAM. Amber = the trust
+          boundary every external call crosses. Arrows between layers are the only paths: clients
+          never reach a datastore, workers never take public traffic. The graph is small
+          (&sect;4) so <b>Graph Service and every worker hold a full copy</b> &mdash; scaling is
+          &ldquo;add workers,&rdquo; not &ldquo;shard the graph.&rdquo;
+        </figcaption>
+      </figure>
+
+      <h3>Component responsibilities</h3>
+      <div class="grid-2">
+        <div class="card"><h4>API Gateway (APISIX)</h4><p>TLS termination, OIDC token check, per-tenant rate limit &amp; quota, JSON-schema validation, WAF (Coraza + OWASP CRS), request IDs. No business logic.</p></div>
+        <div class="card"><h4>Routing Orchestrator</h4><p>Owns job state machine (<code>queued&rarr;running&rarr;done/cancelled/failed</code>), builds the distance matrix via Graph Service, enqueues work, fans in anytime incumbents, persists solutions, drives re-optimization with warm starts.</p></div>
+        <div class="card"><h4>Graph Service</h4><p>Loads a CH build + current weight epoch into RAM; answers <code>ShortestPath</code> and many-to-many <code>Matrix</code> in microseconds; hot-swaps epochs atomically behind a pointer.</p></div>
+        <div class="card"><h4>Network Builder</h4><p>Batch: OSM extract &rarr; PostGIS topology &rarr; CH preprocessing &rarr; immutable build in MinIO. Emits <code>network.build.ready</code>.</p></div>
+        <div class="card"><h4>Weight Updater</h4><p>Consumes Kafka speed/incident events, blends with free-flow model, writes weight history to TimescaleDB, publishes a new immutable <em>epoch</em> array + bumps the Valkey pointer.</p></div>
+        <div class="card"><h4>QPSO Worker Pool</h4><p>Pulls a job, runs the swarm loop (update &rarr; decode &rarr; repair &rarr; evaluate), publishes best-so-far every K iterations, stops on budget/stagnation. Stateless besides the replicated graph.</p></div>
+        <div class="card"><h4>Fitness Eval Actors</h4><p>Ray actors that cost a batch of candidate encodings against the graph in parallel &mdash; the one place raw core count buys speed.</p></div>
+        <div class="card"><h4>Benchmark Service</h4><p>Expands a campaign matrix into jobs, pins container digest + seed + dataset hash, collects curves, runs Wilcoxon + Holm, writes a report bundle.</p></div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section id="data">
+      <h2><span class="num">07</span>Data model</h2>
+      <p class="section-intro">Geospatial + relational for the graph and control plane; time-series for weights and metrics; cache and object store for the hot path and big blobs.</p>
+
+      <h4>PostgreSQL + PostGIS (graph + control plane)</h4>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Table</th><th>Key columns</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>city</code></td><td><code>id, name, bbox geometry, osm_version, active_ch_build</code></td><td>One row per network</td></tr>
+            <tr><td><code>node</code></td><td><code>id, city_id, geom(Point), kind</code></td><td><code>kind &isin; {intersection, depot, poi}</code>; GIST index on geom</td></tr>
+            <tr><td><code>edge</code></td><td><code>id, city_id, src, dst, geom(LineString), length_m, free_flow_s, capacity_vph, road_class, oneway</code></td><td>Directed. B-tree on <code>(city_id, src)</code></td></tr>
+            <tr><td><code>ch_build</code></td><td><code>id, city_id, created_at, osm_version, artifact_uri, checksum</code></td><td>Immutable; artifact in MinIO</td></tr>
+            <tr><td><code>tenant</code>, <code>api_client</code></td><td><code>id, name, quota_json, scopes[]</code></td><td>AuthZ subject; mirrors Keycloak</td></tr>
+            <tr><td><code>optimize_job</code></td><td><code>id, tenant_id, city_id, spec_json, algorithm, status, parent_job_id, ch_build, weight_epoch, seed, created_at</code></td><td>State machine; <code>parent_job_id</code> links re-optimizations</td></tr>
+            <tr><td><code>solution</code></td><td><code>id, job_id, total_time_s, distance_m, violations_json, cost_breakdown_json, bundle_uri, is_final</code></td><td>Multiple rows per job (incumbents); <code>is_final</code> flags the served one</td></tr>
+            <tr><td><code>route_leg</code></td><td><code>solution_id, vehicle_id, seq, from_node, to_node, arrive_s, load_after</code></td><td>Flattened route for the map UI</td></tr>
+            <tr><td><code>audit_log</code></td><td><code>id, ts, actor, tenant_id, action, target, request_hash, prev_hash</code></td><td>Append-only, hash-chained (&sect;10)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>TimescaleDB (hypertables)</h4>
+      <ul>
+        <li><code>edge_weight_live(city_id, edge_id, ts, travel_time_s, congestion, source)</code> &mdash; partition by time; continuous aggregate to 5-min buckets; 90-day retention on raw.</li>
+        <li><code>solution_metric(ts, job_id, algorithm, iter, wallclock_ms, best_cost, gap_pct)</code> &mdash; the convergence trace, one row per publish.</li>
+      </ul>
+
+      <h4>Valkey (cache + coordination)</h4>
+      <ul>
+        <li><code>route:{city}:{ch_build}:{o}:{d}:{epoch_bucket}</code> &rarr; encoded path, TTL 60&nbsp;s.</li>
+        <li><code>weights:{city}:epoch</code> &rarr; current epoch id + artifact pointer (atomic <code>SET</code>).</li>
+        <li><code>job:{id}:state</code> &rarr; status + incumbent summary; pub/sub channel <code>job:{id}:events</code> for anytime updates.</li>
+      </ul>
+
+      <h4>MinIO (S3 API)</h4>
+      <ul>
+        <li>CH graph builds, benchmark datasets (content-addressed by hash), solution bundles, benchmark report artifacts.</li>
+      </ul>
+
+      <div class="callout">
+        <span class="tag">Why a weight <em>epoch</em> and not a mutable table on the hot path</span>
+        Workers must cost thousands of candidates against a <em>consistent</em> weight set. An
+        epoch is an immutable array snapshot identified by id; a run pins one epoch start to
+        finish, so results are reproducible and no locking is needed while weights keep flowing.
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section id="deep">
+      <h2><span class="num">08</span>Deep dives</h2>
+      <p class="section-intro">The five decisions the design actually turns on.</p>
+
+      <h3>8.1&nbsp;&nbsp;Graph representation &amp; fast queries</h3>
+      <p>
+        VRP fitness = sum of shortest-path times between many node pairs, evaluated thousands of
+        times per run. Naive Dijkstra per pair is far too slow. We precompute a
+        <strong>contraction hierarchy</strong> offline; online queries become near-constant-time,
+        and many-to-many matrices use the bucket-based CH algorithm.
+      </p>
+      <div class="tradeoff">
+        <div class="opts">
+          <div class="opt">
+            <span class="label">Option A &mdash; build our own CH</span>
+            <p>Full control of the weight model and epoch hot-swap; more preprocessing code to own and test.</p>
+          </div>
+          <div class="opt">
+            <span class="label">Option B &mdash; embed GraphHopper / OSRM</span>
+            <p>Battle-tested CH + matrix APIs, OSM import for free; weight changes need a partial rebuild or its custom-model hooks.</p>
+          </div>
+        </div>
+        <div class="decision">
+          <b>Decision</b>
+          Use <strong>GraphHopper</strong> as the routing core (Apache-2.0, flexible custom
+          weighting, no full rebuild for weight-parameter changes) behind our own Graph Service
+          facade. Keep a thin in-house CH as a fallback and for the &ldquo;implement the algorithm
+          ourselves&rdquo; deliverable. OSRM stays as a low-latency baseline in benchmarks.
+        </div>
+      </div>
+
+      <h3>8.2&nbsp;&nbsp;Dynamic weights: streaming pipeline &amp; epochs</h3>
+      <figure>
+        <div class="scroll">
+          <svg viewBox="0 0 720 200" role="img" width="720" aria-label="Traffic events flow through Kafka into the Weight Updater, which writes history to TimescaleDB and publishes an immutable epoch snapshot; Graph Service and workers pull the snapshot by pointer.">
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0L10 5L0 10z" fill="currentColor"></path>
+              </marker>
+            </defs>
+            <g font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor">
+              <rect x="8" y="70" width="120" height="46" rx="7" fill="none" stroke="currentColor"></rect>
+              <text x="68" y="90" text-anchor="middle">probes / sensors</text>
+              <text x="68" y="106" text-anchor="middle" class="chart-lbl">/ SUMO TraCI</text>
+
+              <rect x="170" y="70" width="96" height="46" rx="7" fill="none" stroke="currentColor"></rect>
+              <text x="218" y="97" text-anchor="middle">Kafka</text>
+
+              <rect x="310" y="60" width="130" height="66" rx="7" fill="var(--accent-wash)" stroke="var(--accent)"></rect>
+              <text x="375" y="84" text-anchor="middle" fill="var(--accent-ink)">Weight</text>
+              <text x="375" y="100" text-anchor="middle" fill="var(--accent-ink)">Updater</text>
+
+              <rect x="486" y="8" width="150" height="44" rx="7" fill="none" stroke="currentColor"></rect>
+              <text x="561" y="28" text-anchor="middle">TimescaleDB</text>
+              <text x="561" y="43" text-anchor="middle" class="chart-lbl">weight history</text>
+
+              <rect x="486" y="70" width="150" height="46" rx="7" fill="none" stroke="currentColor"></rect>
+              <text x="561" y="90" text-anchor="middle">epoch snapshot</text>
+              <text x="561" y="106" text-anchor="middle" class="chart-lbl">immutable array + id</text>
+
+              <rect x="486" y="140" width="226" height="44" rx="7" fill="var(--accent-wash)" stroke="var(--accent)"></rect>
+              <text x="599" y="160" text-anchor="middle" fill="var(--accent-ink)">Graph Service + QPSO workers</text>
+              <text x="599" y="175" text-anchor="middle" class="chart-lbl" fill="var(--accent-ink)">pull by pointer, pin per run</text>
+
+              <line x1="128" y1="93" x2="166" y2="93" stroke="currentColor" marker-end="url(#ah)"></line>
+              <line x1="266" y1="93" x2="306" y2="93" stroke="currentColor" marker-end="url(#ah)"></line>
+              <line x1="440" y1="80" x2="482" y2="40" stroke="currentColor" marker-end="url(#ah)"></line>
+              <line x1="440" y1="95" x2="482" y2="93" stroke="currentColor" marker-end="url(#ah)"></line>
+              <line x1="561" y1="116" x2="561" y2="136" stroke="currentColor" marker-end="url(#ah)"></line>
+              <text x="455" y="132" class="chart-lbl">publish + bump pointer</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Weight pipeline.</b> The only mutable thing is a pointer in Valkey; everything a run reads is immutable. Source event &rarr; usable epoch target &lt; 45&nbsp;s.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Blend, don&rsquo;t overwrite:</strong> <code>live_t = max(free_flow_t, observed_t)</code> smoothed with an EWMA so a single bad probe can&rsquo;t spike an edge.</li>
+        <li><strong>Gap fill:</strong> edges with no recent probe fall back to a class-based congestion factor by time-of-day.</li>
+        <li><strong>Atomic swap:</strong> Graph Service watches the pointer; on change it loads the new epoch beside the old and flips a reference &mdash; in-flight queries finish on the old one.</li>
+        <li><strong>Staleness guard:</strong> if the newest epoch is older than 5&nbsp;min, responses carry <code>weights_stale: true</code>.</li>
+      </ul>
+
+      <h3>8.3&nbsp;&nbsp;The distributed QPSO engine</h3>
+      <p>
+        QPSO drops PSO&rsquo;s velocity term: each particle&rsquo;s next position is drawn from a
+        distribution around a local attractor between its own best and the global best, with a
+        <em>mean best</em> (<code>mbest</code>) term that widens or narrows the search. It has one
+        main knob (the contraction&ndash;expansion coefficient <code>&beta;</code>), converges fast,
+        and escapes local optima better than PSO &mdash; a good fit for a time-budgeted service.
+      </p>
+      <div class="grid-2">
+        <div class="card">
+          <h4>Parallelism model</h4>
+          <p><strong>Island model:</strong> N worker processes each run an independent sub-swarm on the replicated graph; every M iterations they exchange their best encoding through the orchestrator (ring topology). Within a worker, candidate <em>evaluation</em> is farmed to Ray actors across cores.</p>
+        </div>
+        <div class="card">
+          <h4>Anytime contract</h4>
+          <p>Every K iterations a worker publishes <code>(best_cost, encoding)</code> to <code>job:{id}:events</code>. The orchestrator keeps the global incumbent and serves it on any poll. Cancel = stop iterating, freeze incumbent.</p>
+        </div>
+        <div class="card">
+          <h4>Warm starts</h4>
+          <p>Re-optimization seeds ~30% of the swarm from the parent solution (with the changed stop inserted greedily) and the rest random &mdash; fast convergence without losing diversity.</p>
+        </div>
+        <div class="card">
+          <h4>Determinism</h4>
+          <p>Per-worker RNG seeded from <code>job.seed + worker_index</code>; exchange schedule fixed. Same seed + same epoch + same container digest &rarr; same result.</p>
+        </div>
+      </div>
+
+      <h3>8.4&nbsp;&nbsp;The real-time re-optimization loop</h3>
+      <ul>
+        <li><strong>Triggers:</strong> new weight epoch where the current routes&rsquo; cost rises &gt; &tau;%, a stop added/cancelled, or a vehicle goes off-plan.</li>
+        <li><strong>Debounce:</strong> at most one re-optimization per fleet per 60&nbsp;s; triggers within the window coalesce.</li>
+        <li><strong>Idempotency:</strong> a re-opt job carries <code>parent_job_id</code> + trigger hash; a duplicate trigger returns the existing child job.</li>
+        <li><strong>Regret metric:</strong> report <code>cost(new) &minus; cost(old under new weights)</code> so operators see the value of re-planning, and benchmarks can score responsiveness.</li>
+      </ul>
+
+      <h3>8.5&nbsp;&nbsp;Caching &amp; consistency</h3>
+      <div class="tradeoff">
+        <div class="opts">
+          <div class="opt"><span class="label">Cache keyed by exact epoch</span><p>Always correct, but hit rate collapses because the epoch changes every ~30&nbsp;s.</p></div>
+          <div class="opt"><span class="label">Cache keyed by epoch <em>bucket</em> (e.g. 60&nbsp;s)</span><p>High hit rate for the shortest-path endpoint; a route can be up to one bucket stale.</p></div>
+        </div>
+        <div class="decision">
+          <b>Decision</b>
+          Bucket the epoch for the <code>/v1/route</code> cache (TTL 60&nbsp;s, bucket 60&nbsp;s) &mdash;
+          commuters tolerate a one-minute-old route. VRP jobs <strong>never</strong> use the cache;
+          they pin one exact epoch for the whole run. Cache is Valkey, invalidation is just TTL.
+        </div>
+      </div>
+
+      <h3>8.6&nbsp;&nbsp;Scaling the worker pool</h3>
+      <ul>
+        <li>Jobs land on a queue (Kafka topic <code>optimize.jobs</code>, partitioned by <code>city</code>); workers are a consumer group.</li>
+        <li><strong>KEDA</strong> autoscales the worker Deployment on <em>queue lag</em> and CPU; scale-to-min (not zero) keeps the graph warm.</li>
+        <li>Each city&rsquo;s graph is ~100&nbsp;MB; a worker pod pins one or a few cities to bound memory. Job routing respects that affinity.</li>
+        <li>Back-pressure: if lag exceeds a ceiling, the gateway returns <code>429</code> with <code>Retry-After</code> rather than letting budgets silently blow out.</li>
+      </ul>
+    </section>
+
+    <!-- 9 -->
+    <section id="lld">
+      <h2><span class="num">09</span>Low-level design</h2>
+      <p class="section-intro">
+        The optimization core as classes, the request lifecycle as steps, and the QPSO update
+        rule as code. Language-agnostic but Python-leaning (NumPy + Ray).
+      </p>
+
+      <h3>Class model &mdash; <code>optimization-core</code></h3>
+      <figure>
+        <div class="scroll" style="min-width:560px">
+          <div class="grid-3">
+            <div class="classcard"><div class="cc-h">TransportGraph</div><ul><li>+ travel_time(edge, epoch)</li><li>+ matrix(nodes[]) : float[][]</li><li>+ shortest_path(o, d) : Path</li><li>&minus; ch_index, epoch_ref</li></ul></div>
+            <div class="classcard"><div class="cc-h">ProblemSpec</div><ul><li>depots[], stops[], vehicles[]</li><li>objective, time_budget_ms</li><li>constraints : ConstraintSet</li><li>+ dimension() : int</li></ul></div>
+            <div class="classcard"><div class="cc-h">Encoding <span>«interface»</span></div><ul><li>+ decode(vec) : Routes</li><li>+ random() : float[]</li><li>+ bounds() : (lo, hi)</li></ul></div>
+            <div class="classcard"><div class="cc-h">RandomKeyGiantTour <span>: Encoding</span></div><ul><li>decode = argsort + Prins split</li><li>respects capacity in split</li></ul></div>
+            <div class="classcard"><div class="cc-h">Particle</div><ul><li>x : float[] &nbsp; pbest : float[]</li><li>pbest_cost : float</li><li>+ move(x_new)</li></ul></div>
+            <div class="classcard"><div class="cc-h">Swarm</div><ul><li>particles[] , gbest, gbest_cost</li><li>+ mbest() : float[]</li><li>+ update_bests(costs[])</li></ul></div>
+            <div class="classcard"><div class="cc-h">Optimizer <span>«strategy»</span></div><ul><li>+ solve(spec, graph, cb) : RunResult</li></ul></div>
+            <div class="classcard"><div class="cc-h">QPSOOptimizer <span>: Optimizer</span></div><ul><li>beta_max, beta_min, swarm_size</li><li>island exchange hooks</li></ul></div>
+            <div class="classcard"><div class="cc-h">PSO / GA / ACO / ORToolsSolver <span>: Optimizer</span></div><ul><li>same solve() signature</li><li>benchmark baselines</li></ul></div>
+            <div class="classcard"><div class="cc-h">FitnessEvaluator</div><ul><li>+ cost_batch(vecs[]) : float[]</li><li>decode &rarr; repair &rarr; sum + penalties</li><li>Ray actor pool</li></ul></div>
+            <div class="classcard"><div class="cc-h">ConstraintSet / Validator</div><ul><li>capacity, time_window, max_duration</li><li>+ violations(routes) : Violation[]</li></ul></div>
+            <div class="classcard"><div class="cc-h">RepairOperator</div><ul><li>+ repair(routes) : Routes</li><li>ejection-chain for TW / capacity</li></ul></div>
+            <div class="classcard"><div class="cc-h">TerminationCriteria</div><ul><li>max_iter | time_budget</li><li>| stagnation | target_gap</li></ul></div>
+            <div class="classcard"><div class="cc-h">AnytimeCallback</div><ul><li>+ on_incumbent(iter, cost, enc)</li><li>publishes to job events</li></ul></div>
+            <div class="classcard"><div class="cc-h">RunResult</div><ul><li>routes, cost_breakdown</li><li>convergence_trace[], seed, config_hash</li></ul></div>
+            <div class="classcard"><div class="cc-h">OptimizerFactory</div><ul><li>+ from_config(cfg) : Optimizer</li><li>used by Benchmark Service</li></ul></div>
+          </div>
+        </div>
+        <figcaption>
+          <b>One <code>Optimizer.solve()</code> contract, many strategies.</b> The benchmark harness
+          swaps QPSO for PSO/GA/ACO/OR-Tools by config alone (FR-8). <code>FitnessEvaluator</code>,
+          <code>RepairOperator</code> and <code>Encoding</code> are shared, so comparisons differ
+          only in the search strategy &mdash; a fair test.
+        </figcaption>
+      </figure>
+
+      <h3>Request lifecycle &mdash; <code>POST /v1/optimize</code></h3>
+      <ol class="steps">
+        <li><span class="hop">client &rarr; gateway</span> Request hits APISIX: TLS, JWT + scope check, schema validation, tenant rate-limit, <code>Idempotency-Key</code> lookup. Duplicate key &rarr; return the prior <code>job_id</code>.</li>
+        <li><span class="hop">gateway &rarr; orchestrator (gRPC/mTLS)</span> Orchestrator validates nodes exist in <code>city</code>, pins <code>ch_build</code> + current <code>weight_epoch</code>, writes <code>optimize_job(status=queued, seed)</code>, returns <code>202</code>.</li>
+        <li><span class="hop">orchestrator &rarr; Graph Service</span> Request the many-to-many <code>Matrix</code> for all depot+stop nodes at the pinned epoch. Cache the matrix on the job.</li>
+        <li><span class="hop">orchestrator &rarr; Kafka <code>optimize.jobs</code></span> Enqueue a job message (problem ref, matrix ref, algorithm, budget, seed). Set <code>status=running</code>.</li>
+        <li><span class="hop">workers (consumer group)</span> K island workers pick up the job; each builds a sub-swarm, seeds RNG from <code>seed + index</code>, warm-starts if <code>parent_job_id</code> set.</li>
+        <li><span class="hop">worker &harr; Ray actors</span> Each iteration: QPSO position update &rarr; decode &rarr; repair &rarr; <code>cost_batch()</code> across cores &rarr; update pbest/gbest; every M iters exchange best via orchestrator.</li>
+        <li><span class="hop">worker &rarr; Valkey pub/sub</span> Every K iters publish the incumbent to <code>job:{id}:events</code>; orchestrator keeps the global best and mirrors it to <code>job:{id}:state</code>.</li>
+        <li><span class="hop">client &rarr; orchestrator</span> <code>GET /v1/optimize/{job_id}</code> (long-poll or SSE) always returns the current incumbent + convergence trace.</li>
+        <li><span class="hop">termination</span> On budget/stagnation/target, workers stop; orchestrator writes final <code>solution</code> + <code>route_leg</code> rows, marks <code>is_final</code>, sets <code>status=done</code>, emits <code>optimize.completed</code>, appends <code>audit_log</code>.</li>
+      </ol>
+
+      <h3>QPSO update rule (per iteration)</h3>
+      <pre><span class="c"># x: swarm positions  (P x D real matrix, D = number of stops)</span>
+<span class="c"># pbest: per-particle best positions ; gbest: global best</span>
+mbest = pbest.mean(axis=0)                          <span class="c"># mean of personal bests</span>
+beta  = beta_max - (beta_max - beta_min) * it / max_it   <span class="c"># 1.0 -&gt; 0.5</span>
+
+<span class="k">for</span> i <span class="k">in</span> range(P):
+    phi   = rng.random(D)
+    p_att = phi * pbest[i] + (1.0 - phi) * gbest    <span class="c"># local attractor</span>
+    u     = rng.random(D)
+    L     = 2.0 * beta * np.abs(mbest - x[i])       <span class="c"># well width</span>
+    sign  = np.where(rng.random(D) &lt; 0.5, 1.0, -1.0)
+    x[i]  = p_att + sign * L * np.log(1.0 / u)      <span class="c"># delta-potential-well draw</span>
+    x[i]  = np.clip(x[i], lo, hi)
+
+routes = [encoding.decode(x[i]) <span class="k">for</span> i <span class="k">in</span> range(P)]     <span class="c"># random-key -&gt; giant tour -&gt; split</span>
+routes = [repair(r) <span class="k">for</span> r <span class="k">in</span> routes]
+costs  = evaluator.cost_batch(routes)              <span class="c"># parallel; travel time + penalties</span>
+swarm.update_bests(costs)                          <span class="c"># pbest / gbest</span>
+<span class="k">if</span> it % K == 0: callback.on_incumbent(it, swarm.gbest_cost, swarm.gbest)</pre>
+      <p class="lede-sm">
+        Cost function: <code>&Sigma; leg_travel_time(epoch) + &lambda;&#8321;&middot;capacity_overflow +
+        &lambda;&#8322;&middot;time_window_lateness + &lambda;&#8323;&middot;duration_overflow</code>. Penalty
+        weights <code>&lambda;</code> ramp with iteration so early search explores, late search is feasible.
+      </p>
+
+      <h3>Concurrency, failure &amp; idempotency</h3>
+      <ul>
+        <li><strong>Worker crash:</strong> Kafka offset not committed until an incumbent is published &rarr; job is redelivered; island diversity means one lost sub-swarm doesn&rsquo;t fail the job.</li>
+        <li><strong>Orchestrator crash:</strong> job state is in Postgres + Valkey, not memory; a new instance resumes fan-in from <code>job:{id}:events</code>.</li>
+        <li><strong>Duplicate submit:</strong> <code>Idempotency-Key</code> unique index on <code>optimize_job</code>; second insert returns the first row.</li>
+        <li><strong>Matrix build fails:</strong> job &rarr; <code>failed</code> with an RFC-7807 reason; no partial solution persisted.</li>
+        <li><strong>Poison job:</strong> after 3 redeliveries &rarr; dead-letter topic + alert.</li>
+      </ul>
+
+      <h3>Schema DDL (excerpt)</h3>
+      <pre><span class="k">CREATE TABLE</span> optimize_job (
+  id            text <span class="k">PRIMARY KEY</span>,
+  tenant_id     text <span class="k">NOT NULL REFERENCES</span> tenant(id),
+  city_id       text <span class="k">NOT NULL REFERENCES</span> city(id),
+  algorithm     text <span class="k">NOT NULL</span>,
+  spec_json     jsonb <span class="k">NOT NULL</span>,
+  status        text <span class="k">NOT NULL DEFAULT</span> <span class="k">'queued'</span>,
+  parent_job_id text <span class="k">REFERENCES</span> optimize_job(id),
+  ch_build      text <span class="k">NOT NULL</span>,
+  weight_epoch  bigint <span class="k">NOT NULL</span>,
+  seed          bigint <span class="k">NOT NULL</span>,
+  idem_key      text <span class="k">NOT NULL</span>,
+  created_at    timestamptz <span class="k">NOT NULL DEFAULT</span> now(),
+  <span class="k">UNIQUE</span> (tenant_id, idem_key)
+);
+<span class="k">CREATE INDEX</span> ON optimize_job (city_id, status);
+<span class="c">-- solution_metric is a TimescaleDB hypertable on ts</span></pre>
+    </section>
+
+    <!-- 10 -->
+    <section id="security">
+      <h2><span class="num">10</span>Security &mdash; MNC-grade</h2>
+      <p class="section-intro">
+        Zero-trust between services, least privilege for people, a signed supply chain, and GPS
+        data treated as personal data. All controls are open-source tooling.
+      </p>
+
+      <h3>Identity &amp; access</h3>
+      <ul>
+        <li><strong>AuthN:</strong> Keycloak OIDC; short-lived JWTs (10&nbsp;min) + refresh; service-to-service identity via <strong>Linkerd mTLS</strong> (SPIFFE-style pod identity). No service accepts plaintext.</li>
+        <li><strong>AuthZ:</strong> scoped tokens (<code>optimize:write</code>, <code>network:read</code>, <code>benchmark:run</code>, <code>admin</code>) checked at the gateway; fine-grained rules (tenant isolation, per-resource) as <strong>OPA</strong> policies evaluated in the orchestrator.</li>
+        <li><strong>Multi-tenancy:</strong> every query is tenant-scoped in code and enforced again by Postgres row-level security; benchmark and admin actions are separate roles.</li>
+      </ul>
+
+      <h3>Threat model (STRIDE)</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Threat</th><th>Concrete risk here</th><th>Control</th></tr></thead>
+          <tbody>
+            <tr><td>Spoofing</td><td>Forged API caller; rogue pod posing as a worker</td><td>OIDC JWT; Linkerd mTLS with workload identity; gateway is the only ingress</td></tr>
+            <tr><td>Tampering</td><td>Altered edge weights or benchmark results change the &ldquo;winner&rdquo;</td><td>Immutable epoch snapshots with content hash; MinIO object-lock on builds &amp; datasets; hash-chained <code>audit_log</code>; result bundles signed</td></tr>
+            <tr><td>Repudiation</td><td>User denies submitting an expensive job</td><td>Append-only audit log (<code>prev_hash</code> chain), streamed WORM to the SIEM</td></tr>
+            <tr><td>Information disclosure</td><td>GPS probe traces reveal individuals&rsquo; movements</td><td>Pseudonymized device IDs; raw traces 7-day TTL then aggregate-only; field-level encryption; RBAC; TLS 1.3 everywhere</td></tr>
+            <tr><td>Denial of service</td><td>Flood of large, long-budget optimize calls starves workers</td><td>Gateway rate-limit + per-tenant concurrency cap; hard <code>time_budget_ms</code> ceiling; queue back-pressure &rarr; <code>429</code>; KEDA max replicas</td></tr>
+            <tr><td>Elevation of privilege</td><td>A <code>benchmark:run</code> token triggers admin actions</td><td>OPA least-privilege; no ambient authority; containers non-root, read-only FS, seccomp, dropped caps; Kyverno admission policy</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Data protection</h3>
+      <ul>
+        <li><strong>In transit:</strong> TLS 1.3 at the edge; mTLS inside the mesh. <strong>At rest:</strong> AES-256 volume encryption; column encryption for device IDs and any customer PII.</li>
+        <li><strong>Retention:</strong> raw GPS 7 days &rarr; segment aggregates 90 days &rarr; anonymized long-term. Documented lawful basis (DPDP Act / GDPR); DSAR + delete path.</li>
+        <li><strong>Secrets:</strong> <strong>OpenBao</strong> (MPL-2.0) + External Secrets Operator; no secrets in images, env files or git; short-lived dynamic DB creds.</li>
+      </ul>
+
+      <h3>Supply chain &amp; build integrity</h3>
+      <ul>
+        <li>SBOM per image with <strong>Syft</strong>; vuln scan with <strong>Trivy</strong> / <strong>Grype</strong> in CI (block on Critical).</li>
+        <li>SAST with <strong>Semgrep</strong>; dependency risk with <strong>OSV-Scanner</strong>; automated bumps via <strong>Renovate</strong>.</li>
+        <li>Images signed with <strong>Cosign</strong>; cluster admission (<strong>Kyverno</strong>) rejects unsigned or unscanned images; provenance attestation (SLSA-style).</li>
+        <li><strong>Licence gate:</strong> CI fails on non-OSI or copyleft-incompatible deps &mdash; hence <strong>Valkey</strong> over Redis and <strong>OpenTofu</strong> / <strong>OpenBao</strong> over their re-licensed upstreams.</li>
+      </ul>
+
+      <h3>Runtime &amp; monitoring</h3>
+      <ul>
+        <li>Kubernetes <code>NetworkPolicy</code> default-deny; namespaces per plane; PodSecurity &ldquo;restricted&rdquo;.</li>
+        <li><strong>Falco</strong> for runtime anomaly detection; <strong>Wazuh</strong> + <strong>OpenSearch</strong> as SIEM; alerts on auth failures, privilege use, audit-chain breaks.</li>
+        <li><strong>OWASP API Top-10 (2023)</strong> mapping: BOLA &rarr; tenant-scoped OPA checks on every object; broken auth &rarr; Keycloak + short TTL; unrestricted resource consumption &rarr; budgets + quotas; SSRF &rarr; egress allow-list from services; security misconfig &rarr; Kyverno baseline + CIS scan.</li>
+      </ul>
+    </section>
+
+    <!-- 11 -->
+    <section id="observability">
+      <h2><span class="num">11</span>Observability</h2>
+      <p class="section-intro">One pipeline: OpenTelemetry SDK &rarr; Collector &rarr; Prometheus (metrics) / Tempo (traces) / Loki (logs) &rarr; Grafana.</p>
+      <div class="grid-3">
+        <div class="card"><h4>Golden signals</h4><ul><li>route p50/p95/p99 latency</li><li>optimize time-to-incumbent</li><li>worker queue lag</li><li>error rate by endpoint</li></ul></div>
+        <div class="card"><h4>Domain SLIs</h4><ul><li>solution gap-to-baseline %</li><li>weight epoch staleness (s)</li><li>fitness evals / s / core</li><li>re-opt regret distribution</li></ul></div>
+        <div class="card"><h4>Traces</h4><ul><li>one trace: gateway &rarr; orchestrator &rarr; matrix &rarr; queue &rarr; workers</li><li>span per QPSO island</li><li>exemplars link metric spikes to traces</li></ul></div>
+      </div>
+      <p>Every job persists its <strong>convergence trace</strong> to TimescaleDB; the dashboard renders cost-vs-wallclock live, which doubles as the benchmark artifact (&sect;14).</p>
+    </section>
+
+    <!-- 12 -->
+    <section id="infra">
+      <h2><span class="num">12</span>Deployment &amp; infrastructure</h2>
+      <div class="grid-2">
+        <div class="card"><h4>Runtime</h4><p>Docker images; Kubernetes (k3s for the demo / SIH judging, managed K8s for production). Linkerd mesh, cert-manager, APISIX ingress.</p></div>
+        <div class="card"><h4>Delivery</h4><p>GitOps with <strong>Argo CD</strong>; Helm charts per service; <strong>OpenTofu</strong> for cloud infra, Ansible for node config; <strong>Harbor</strong> registry.</p></div>
+        <div class="card"><h4>CI</h4><p><strong>Woodpecker CI</strong> (or GitHub Actions): lint &rarr; unit &rarr; SAST/SBOM/scan &rarr; build &rarr; sign &rarr; integration (compose) &rarr; publish. Benchmarks run nightly on a pinned node.</p></div>
+        <div class="card"><h4>Environments</h4><p><code>dev</code> (compose), <code>staging</code> (full stack, synthetic + SUMO feed), <code>prod</code> (single region + warm DR). One-command local bring-up for contributors.</p></div>
+      </div>
+      <div class="callout ok">
+        <span class="tag">Demo path</span>
+        <code>docker compose up</code> brings the whole platform up on a laptop: OSM import for one
+        city, SUMO driving live weights, QPSO workers, the map UI, and a one-command Solomon
+        benchmark &mdash; enough to satisfy deliverables 1&ndash;4 without a cluster.
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section id="bottlenecks">
+      <h2><span class="num">13</span>Bottlenecks, SPOFs &amp; trade-offs</h2>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Pressure point</th><th>Symptom</th><th>Mitigation</th></tr></thead>
+          <tbody>
+            <tr><td>Distance matrix for large VRP</td><td>Orchestrator stalls before the swarm starts</td><td>Many-to-many CH; cache matrix per job; reuse across re-opt of same node set</td></tr>
+            <tr><td>Swarm CPU</td><td>Time-to-good-answer grows with stop count</td><td>Island model + Ray parallel eval; KEDA scale-out on queue lag; anytime budget caps worst case</td></tr>
+            <tr><td>Weight-update fan-out</td><td>Workers block on weight reads</td><td>Immutable epochs pulled by pointer; no locks; run pins one epoch</td></tr>
+            <tr><td>Valkey</td><td>Cache + job-state SPOF</td><td>Valkey Sentinel (3-node) / cluster; job state also in Postgres (source of truth)</td></tr>
+            <tr><td>Kafka</td><td>Ingestion + job queue SPOF</td><td>3 brokers, RF&nbsp;3, min-ISR&nbsp;2</td></tr>
+            <tr><td>PostgreSQL</td><td>Control-plane SPOF</td><td>Patroni HA + PgBouncer; read replicas for the map UI</td></tr>
+            <tr><td>API Gateway</td><td>Ingress SPOF</td><td>&ge;2 replicas behind an L4 load balancer; config in git</td></tr>
+            <tr><td>Graph Service RAM</td><td>Many cities &times; 100&nbsp;MB</td><td>City affinity per pod; shard cities across pods; lazy-load + LRU evict cold cities</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h4>Accepted trade-offs</h4>
+      <ul>
+        <li><strong>Replicated graph</strong> wastes RAM but removes a distributed store from the hot path &mdash; worth it at this scale.</li>
+        <li><strong>Anytime QPSO</strong> may return a slightly sub-optimal route under a tight budget; we surface the gap rather than block.</li>
+        <li><strong>Eventual weights</strong> mean a route can be tens of seconds stale; acceptable for routing, flagged in the response.</li>
+        <li><strong>Single region</strong> in v1 &mdash; simpler ops; DR is warm-standby, RPO ~5&nbsp;min.</li>
+      </ul>
+    </section>
+
+    <!-- 14 -->
+    <section id="benchmark">
+      <h2><span class="num">14</span>Benchmarking methodology</h2>
+      <p class="section-intro">Deliverable&nbsp;5 lives or dies here: a fair, reproducible comparison of QPSO against classical metaheuristics and exact methods.</p>
+
+      <figure>
+        <div class="scroll">
+          <svg viewBox="0 0 440 250" role="img" width="440" aria-label="Illustrative convergence: solution cost versus wall-clock time. QPSO drops faster and settles closer to the best-known solution than PSO. Not measured data.">
+            <g>
+              <line x1="44" y1="12" x2="44" y2="208" class="chart-ax"></line>
+              <line x1="44" y1="208" x2="420" y2="208" class="chart-ax"></line>
+              <line x1="44" y1="206" x2="420" y2="206" class="chart-bks"></line>
+              <text x="40" y="212" text-anchor="end" class="chart-lbl">1.0</text>
+              <text x="40" y="114" text-anchor="end" class="chart-lbl">1.2</text>
+              <text x="40" y="16" text-anchor="end" class="chart-lbl">1.4</text>
+              <text x="44" y="230" text-anchor="middle" class="chart-lbl">0</text>
+              <text x="232" y="230" text-anchor="middle" class="chart-lbl">1&thinsp;s</text>
+              <text x="420" y="230" text-anchor="middle" class="chart-lbl">2&thinsp;s</text>
+              <text x="232" y="246" text-anchor="middle" class="chart-lbl">wall-clock time</text>
+              <text x="14" y="110" text-anchor="middle" class="chart-lbl" transform="rotate(-90 14 110)">cost / BKS</text>
+              <polyline class="chart-q" points="44,22 71,110 108,159 171,183 262,191 420,193"></polyline>
+              <polyline class="chart-p" points="44,12 90,61 153,110 244,144 335,159 420,164"></polyline>
+              <line x1="300" y1="30" x2="322" y2="30" class="chart-q"></line>
+              <text x="328" y="34" class="chart-lbl">QPSO</text>
+              <line x1="300" y1="48" x2="322" y2="48" class="chart-p"></line>
+              <text x="328" y="52" class="chart-lbl">PSO</text>
+              <text x="330" y="200" class="chart-lbl">best known</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Illustrative &mdash; not measured.</b> The report ships the real curve per instance from the persisted convergence traces.</figcaption>
+      </figure>
+
+      <h4>Datasets</h4>
+      <ul>
+        <li>CVRPLIB (X, Golden); Solomon VRPTW (C / R / RC); Gehring&ndash;Homberger 200&ndash;1000 for scale.</li>
+        <li>One <strong>real OSM city instance</strong> with demand sampled from GPS aggregates &mdash; the &ldquo;realistic large-scale scenario&rdquo; the PS asks for.</li>
+      </ul>
+      <h4>Baselines</h4>
+      <ul><li>Classical PSO, GA, ACO (our implementations, shared eval/repair); Google OR-Tools GLS; CH / Dijkstra exact for shortest path; LKH-3 where tractable.</li></ul>
+      <h4>Metrics</h4>
+      <ul>
+        <li>Cost, and % gap to best-known; time-to-target (s to reach &le;2% gap); convergence curve (cost vs wall-clock); success rate; scalability curve (n vs time); re-opt regret under a scripted weight change.</li>
+      </ul>
+      <h4>Protocol</h4>
+      <ul>
+        <li>30 seeds per cell; identical time budget across algorithms; report mean &plusmn; 95% CI.</li>
+        <li>Wilcoxon signed-rank + Holm&ndash;Bonferroni correction; report effect size, not just p-values.</li>
+        <li>Fixed hardware, pinned container digest, logged seeds, content-hashed datasets &rarr; a run reproduces from <code>benchmark/run.yaml</code>.</li>
+      </ul>
+    </section>
+
+    <!-- 15 -->
+    <section id="stack">
+      <h2><span class="num">15</span>Open-source tech stack</h2>
+      <p class="section-intro">Every component is OSI-licensed. Where an upstream re-licensed to a non-OSI licence, the OSI fork is chosen and the reason noted.</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Layer</th><th>Choice</th><th>Licence</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td>Map data</td><td>OpenStreetMap / Geofabrik extracts</td><td>ODbL</td><td>Free global road topology; standard input for every routing engine</td></tr>
+            <tr><td>Routing core</td><td>GraphHopper (+ OSRM as baseline)</td><td>Apache-2.0 / BSD-2</td><td>CH speed + flexible custom weighting without full rebuilds</td></tr>
+            <tr><td>Geospatial DB</td><td>PostgreSQL + PostGIS</td><td>PostgreSQL / GPL-2.0</td><td>Topology storage, spatial indexes, RLS for tenancy</td></tr>
+            <tr><td>Time-series</td><td>TimescaleDB</td><td>Apache-2.0 (core)</td><td>Weight history + convergence traces as hypertables</td></tr>
+            <tr><td>Optimization</td><td>Custom QPSO (NumPy); pymoo; OR-Tools; DEAP (opt.)</td><td>Apache-2.0 / LGPL</td><td>Own the quantum-inspired engine; strong baselines for a fair benchmark</td></tr>
+            <tr><td>Parallel compute</td><td>Ray</td><td>Apache-2.0</td><td>Actor pool for parallel fitness evaluation and island workers</td></tr>
+            <tr><td>Streaming</td><td>Apache Kafka</td><td>Apache-2.0</td><td>Traffic ingestion + durable job queue with consumer groups</td></tr>
+            <tr><td>Cache / coordination</td><td>Valkey</td><td>BSD-3</td><td>OSI-clean Redis fork; route cache, job state, epoch pointer, pub/sub</td></tr>
+            <tr><td>API</td><td>FastAPI + Pydantic v2; gRPC + Protobuf</td><td>MIT / Apache-2.0</td><td>Typed REST at the edge, fast internal RPC on the hot path</td></tr>
+            <tr><td>Frontend</td><td>React + Vite + MapLibre GL + deck.gl</td><td>MIT / BSD-3</td><td>Vector map, route + congestion layers, convergence chart</td></tr>
+            <tr><td>Traffic simulation</td><td>Eclipse SUMO + TraCI</td><td>EPL-2.0</td><td>Deterministic live-weight source for demo &amp; what-if mode</td></tr>
+            <tr><td>Identity / policy</td><td>Keycloak + Open Policy Agent</td><td>Apache-2.0</td><td>OIDC + externalized fine-grained authZ</td></tr>
+            <tr><td>API gateway / WAF</td><td>Apache APISIX + Coraza + OWASP CRS</td><td>Apache-2.0</td><td>AuthN, rate limit, schema validation, WAF at one edge</td></tr>
+            <tr><td>Secrets</td><td>OpenBao + External Secrets Operator</td><td>MPL-2.0</td><td>OSI fork of Vault; dynamic DB creds, no secrets in git</td></tr>
+            <tr><td>Service mesh</td><td>Linkerd + cert-manager</td><td>Apache-2.0</td><td>Automatic mTLS + workload identity between services</td></tr>
+            <tr><td>Orchestration</td><td>Kubernetes / k3s + Helm + Argo CD + KEDA</td><td>Apache-2.0</td><td>GitOps delivery; event-driven autoscaling on queue lag</td></tr>
+            <tr><td>IaC</td><td>OpenTofu + Ansible</td><td>MPL-2.0 / GPL-3.0</td><td>OSI fork of Terraform; reproducible infra + node config</td></tr>
+            <tr><td>CI/CD + registry</td><td>Woodpecker CI (or GitHub Actions) + Harbor</td><td>Apache-2.0</td><td>Pipeline with SBOM/scan/sign gates; signed image storage</td></tr>
+            <tr><td>Observability</td><td>OpenTelemetry + Prometheus + Grafana + Loki + Tempo</td><td>Apache-2.0 / AGPL-3.0</td><td>One correlated metrics/logs/traces pipeline</td></tr>
+            <tr><td>Supply-chain security</td><td>Syft, Trivy, Grype, Cosign, Semgrep, OSV-Scanner, Renovate</td><td>Apache-2.0 / LGPL</td><td>SBOM, scanning, signing, SAST, dependency hygiene in CI</td></tr>
+            <tr><td>Runtime security / SIEM</td><td>Falco, Kyverno, Wazuh, OpenSearch</td><td>Apache-2.0 / GPL-2.0</td><td>Admission policy, runtime detection, audit correlation</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 16 -->
+    <section id="roadmap">
+      <h2><span class="num">16</span>Implementation roadmap</h2>
+      <p class="section-intro">Three phases, each ending on something demonstrable. The PS deliverables map straight onto them.</p>
+
+      <div class="grid-3">
+        <div class="card">
+          <h4>Phase 0 &mdash; core (wks 1&ndash;4)</h4>
+          <p><strong>Deliverables 1&ndash;3.</strong></p>
+          <ul>
+            <li>OSM &rarr; PostGIS graph + CH build (static weights)</li>
+            <li>Mathematical model: objective + penalised constraints, decision vars</li>
+            <li>QPSO engine + encoding/split + repair; PSO baseline</li>
+            <li>CLI; Solomon / CVRPLIB benchmark vs OR-Tools + PSO</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Phase 1 &mdash; platform (wks 5&ndash;8)</h4>
+          <p><strong>Deliverable 4.</strong></p>
+          <ul>
+            <li>FastAPI service + async jobs + Valkey + Graph Service</li>
+            <li>React + MapLibre UI: routes, congestion, convergence chart</li>
+            <li>SUMO feed &rarr; live weight epochs; re-optimization loop</li>
+            <li><code>docker compose</code> one-command bring-up</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Phase 2 &mdash; scale &amp; hardening (wks 9&ndash;12)</h4>
+          <p><strong>Deliverable 5.</strong></p>
+          <ul>
+            <li>Kafka ingestion; Ray island workers; KEDA autoscale</li>
+            <li>K8s + Argo CD; Keycloak + OPA; mesh mTLS; OTel stack</li>
+            <li>Supply-chain + runtime security gates</li>
+            <li>Large real-city demo + full benchmark report with significance tests</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="callout ok">
+        <span class="tag">Definition of done for the PS</span>
+        A running platform that imports a real city, holds it as a live weighted graph, returns
+        near-optimal routes under changing traffic through a QPSO engine, shows them on a map, and
+        ships a benchmark report where QPSO&rsquo;s convergence and solution quality are compared
+        &mdash; with statistics &mdash; against PSO, GA, ACO, OR-Tools and exact methods.
+      </div>
+    </section>
+
+    <hr class="soft" />
+    <p class="lede-sm">
+      Next step: turn &sect;9 into the <code>optimization-core</code> package and &sect;7 into
+      migrations, then wire the Phase&nbsp;0 CLI. This document is the reference for that build.
+    </p>
+  </main>
+</div>
+
+<footer class="footer">
+  QuantRoute &mdash; system design for SIH26137 &ldquo;Quantum-Inspired Intelligent Traffic Route
+  Optimization&rdquo;. HLD + LLD, open-source stack, MNC-grade security. Draft v0.1 &middot; 2026-09-09.
+</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var KEY = "quantroute-theme";
+    var btn = document.getElementById("themeToggle");
+    try {
+      var saved = localStorage.getItem(KEY);
+      if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved);
+    } catch (e) {}
+    function current() {
+      var attr = root.getAttribute("data-theme");
+      if (attr) return attr;
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    if (btn) {
+      btn.addEventListener("click", function () {
+        var next = current() === "dark" ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        try { localStorage.setItem(KEY, next); } catch (e) {}
+      });
+    }
+
+    // scrollspy
+    var links = Array.prototype.slice.call(document.querySelectorAll('.toc a[href^="#"]'));
+    var map = {};
+    links.forEach(function (a) {
+      var id = a.getAttribute("href").slice(1);
+      var sec = document.getElementById(id);
+      if (sec) map[id] = a;
+    });
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) {
+            links.forEach(function (l) { l.classList.remove("active"); });
+            var a = map[en.target.id];
+            if (a) a.classList.add("active");
+          }
+        });
+      }, { rootMargin: "-15% 0px -75% 0px", threshold: 0 });
+      Object.keys(map).forEach(function (id) {
+        io.observe(document.getElementById(id));
+      });
+    }
+  })();
+</script>
+
+</body></html>
