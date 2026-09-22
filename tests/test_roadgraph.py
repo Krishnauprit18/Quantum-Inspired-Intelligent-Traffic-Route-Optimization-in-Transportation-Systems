@@ -1,6 +1,7 @@
 """Piece 10 tests: RoadGraph, RoadGraphMatrix, loaders, and end-to-end on a road network."""
 
 import pytest
+from defusedxml.common import DefusedXmlException
 
 from quantroute import (
     ConstraintSet,
@@ -158,6 +159,28 @@ def test_from_osm_xml(tmp_path):
     g = from_osm_xml(p)
     assert g.num_nodes == 3  # node 9 belongs only to a non-highway way -> excluded
     assert g.num_edges == 4  # 2 segments x both directions
+
+
+def test_from_osm_xml_rejects_entity_declarations(tmp_path):
+    xml = """<?xml version="1.0"?>
+    <!DOCTYPE osm [
+      <!ENTITY blocked "should-not-expand">
+    ]>
+    <osm version="0.6">
+      <node id="1" lat="0.0" lon="0.0"/>
+      <node id="2" lat="0.0" lon="0.001"/>
+      <way id="100">
+        <nd ref="1"/>
+        <nd ref="2"/>
+        <tag k="highway" v="residential"/>
+        <tag k="name" v="&blocked;"/>
+      </way>
+    </osm>"""
+    path = tmp_path / "unsafe.osm"
+    path.write_text(xml, encoding="utf-8")
+
+    with pytest.raises(DefusedXmlException):
+        from_osm_xml(path)
 
 
 # -- end to end: the whole solver on a road graph -----------------

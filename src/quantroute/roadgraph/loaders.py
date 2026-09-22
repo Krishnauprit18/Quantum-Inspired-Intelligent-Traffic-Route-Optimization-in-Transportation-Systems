@@ -4,20 +4,19 @@ XML file, or a synthetic grid (for demos / §14 "synthetic large instance").
 ``.osm`` XML (Overpass / JOSM export) is parsed with the standard library — no ``pyrosm`` /
 ``osmium`` needed. Binary ``.pbf`` is out of scope; convert it to XML or GeoJSON first.
 
-Input files are size-capped before parsing (``max_bytes``). ``xml.etree.ElementTree`` on
-current CPython (expat >= 2.4.1) is not vulnerable to entity-expansion attacks; if you must
-parse XML from a fully untrusted source, install ``defusedxml`` and swap the parser.
+Input files are size-capped before parsing (``max_bytes``). XML is parsed with ``defusedxml``
+so entity declarations and other dangerous XML features are rejected at the parser boundary.
 """
 
 from __future__ import annotations
 
 import json
 import math
-import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import numpy as np
+from defusedxml import ElementTree as ET
 
 from quantroute.roadgraph.graph import RoadGraph, RoadGraphError
 
