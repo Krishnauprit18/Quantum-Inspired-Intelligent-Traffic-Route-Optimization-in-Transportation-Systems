@@ -17,3 +17,7 @@ htmlcov/
 .ruff_cache/
 *.log
 secrets/
+
+# Floci writes local AWS service state and logs into this bind-mounted path.
+# It must never be committed to the repository.
+infra/floci/data/

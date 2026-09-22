@@ -1,0 +1,34 @@
+name: quantroute-local
+
+services:
+  floci:
+    image: ${FLOCI_IMAGE:-floci/floci:latest}
+    container_name: quantroute-floci
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FLOCI_PORT:-4566}:4566"
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      FLOCI_STORAGE_MODE: persistent
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+      FLOCI_HOSTNAME: floci
+      FLOCI_SERVICES_DOCKER_NETWORK: quantroute_floci
+      FLOCI_SERVICES_EKS_DOCKER_NETWORK: quantroute_floci
+      FLOCI_SERVICES_ECR_DOCKER_NETWORK: quantroute_floci
+      FLOCI_SERVICES_EKS_MOCK: "false"
+      FLOCI_SERVICES_UI_ENABLED: "false"
+    # The published image contains bash but does not contain wget/curl. This
+    # checks that the AWS-compatible listener is accepting TCP connections;
+    # floci-health.sh performs the deeper HTTP and STS verification.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/4566'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+networks:
+  default:
+    name: quantroute_floci
