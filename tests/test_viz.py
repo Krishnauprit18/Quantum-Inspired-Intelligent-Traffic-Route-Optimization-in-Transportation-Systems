@@ -61,3 +61,16 @@ def test_render_map_png(tmp_path):
     out = tmp_path / "map.png"
     render_map_png(fc, out, title="png map")
     assert out.is_file() and out.stat().st_size > 1000
+
+
+def test_live_dispatcher_html(tmp_path):
+    from quantroute.viz import generate_live_dispatcher_html, save_live_dispatcher_html
+
+    html = generate_live_dispatcher_html()
+    assert "QuantRoute Command Center" in html
+    assert "QPSO Live Dispatcher" in html
+    assert "Simulate Corridor Accident" in html
+
+    out = tmp_path / "live.html"
+    res = save_live_dispatcher_html(out)
+    assert res.is_file() and res.stat().st_size > 1000

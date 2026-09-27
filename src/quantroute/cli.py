@@ -565,6 +565,27 @@ def worker(
         typer.echo("worker stopped.")
 
 
+@app.command("live-dashboard")
+def live_dashboard(
+    output: Path = typer.Option(
+        Path("live-dashboard.html"),
+        "--output",
+        "-o",
+        help="path to write the interactive HTML dashboard",
+    ),
+    open_browser: bool = typer.Option(False, "--open", help="open in default web browser"),
+) -> None:
+    """Generate the interactive dispatcher UI with live moving vehicles and dynamic re-routing."""
+    import webbrowser
+
+    from quantroute.viz.dispatcher import save_live_dispatcher_html
+
+    out_file = save_live_dispatcher_html(output)
+    typer.echo(f"Live interactive dispatcher UI generated: {out_file.resolve()}")
+    if open_browser:
+        webbrowser.open(out_file.resolve().as_uri())
+
+
 def main() -> None:
     app()
 

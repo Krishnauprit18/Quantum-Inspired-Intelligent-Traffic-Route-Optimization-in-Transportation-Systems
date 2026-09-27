@@ -131,3 +131,11 @@ def test_solve_validation_errors(client):
         == 404
     )
     assert client.get("/v1/solve/deadbeef").status_code == 404
+
+
+def test_dashboard_endpoint(client):
+    r = client.get("/dashboard")
+    assert r.status_code == 200
+    assert "QuantRoute Command Center" in r.text
+    assert "QPSO Live Dispatcher" in r.text
+    assert "Simulate Corridor Accident" in r.text

@@ -20,7 +20,7 @@ from starlette.responses import JSONResponse, Response
 
 from quantroute.config import Settings
 
-PUBLIC_PATHS = {"/health", "/ready", "/", "/docs", "/openapi.json"}
+PUBLIC_PATHS = {"/health", "/ready", "/", "/docs", "/openapi.json", "/dashboard"}
 
 
 class Role(str, Enum):

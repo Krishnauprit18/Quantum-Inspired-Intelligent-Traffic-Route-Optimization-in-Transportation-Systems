@@ -131,6 +131,14 @@ class RoadGraph:
         return self._edge_len_m
 
     @property
+    def edge_src(self) -> np.ndarray:
+        return self._edge_src
+
+    @property
+    def edge_dst(self) -> np.ndarray:
+        return self._edge_dst
+
+    @property
     def edge_class(self) -> tuple[str, ...]:
         return self._edge_class
 

@@ -112,6 +112,12 @@ def create_app() -> FastAPI:
     def index() -> RedirectResponse:
         return RedirectResponse(url="/docs")
 
+    @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+    def dashboard() -> HTMLResponse:
+        from quantroute.viz.dispatcher import generate_live_dispatcher_html
+
+        return HTMLResponse(content=generate_live_dispatcher_html())
+
     @app.get("/health")
     def health() -> dict:
         return {"status": "ok", "version": __version__}
