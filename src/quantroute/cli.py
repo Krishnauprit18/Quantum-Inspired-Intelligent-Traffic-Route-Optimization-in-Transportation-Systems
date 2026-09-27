@@ -447,6 +447,82 @@ def showcase(
     typer.echo(f"raw results  {artifacts.results_json}")
 
 
+@app.command("ingest-osm")
+def ingest_osm(
+    city: str = typer.Option(
+        "bengaluru",
+        "--city",
+        "-c",
+        help="preset city name (bengaluru | delhi | mumbai | pune)",
+    ),
+    bbox: str = typer.Option(None, "--bbox", help="custom south,west,north,east coordinates"),
+    output: Path = typer.Option(None, "--output", "-o", help="save downloaded .osm file"),
+    timeout: int = typer.Option(30, "--timeout", help="API timeout in seconds"),
+) -> None:
+    """Download real-world OpenStreetMap city network and build a RoadGraph."""
+    import tempfile
+
+    from quantroute.roadgraph import RoadGraphError, fetch_osm_city, from_osm_xml
+
+    target: str | tuple[float, float, float, float] = city
+    if bbox:
+        try:
+            parts = [float(x.strip()) for x in bbox.split(",")]
+            if len(parts) != 4:
+                raise ValueError
+            target = (parts[0], parts[1], parts[2], parts[3])
+        except ValueError:
+            _fail("--bbox must be 4 comma-separated floats: south,west,north,east")
+
+    typer.echo(f"fetching OSM road network for: {bbox if bbox else city}...")
+    try:
+        xml_content = fetch_osm_city(target, output_path=output, timeout_s=timeout)
+    except RoadGraphError as exc:
+        _fail(str(exc))
+
+    if output:
+        graph = from_osm_xml(output)
+        typer.echo(f"saved raw OSM to: {output}")
+    else:
+        with tempfile.NamedTemporaryFile("w+", suffix=".osm", encoding="utf-8", delete=True) as tmp:
+            tmp.write(xml_content)
+            tmp.flush()
+            graph = from_osm_xml(tmp.name)
+
+    typer.echo(
+        f"successfully built RoadGraph: {graph.num_nodes} nodes, {graph.num_edges} directed edges"
+    )
+
+
+@app.command("simulate-traffic")
+def simulate_traffic(
+    grid_size: int = typer.Option(6, "--grid", "-g", help="grid size (NxN)"),
+    steps: int = typer.Option(4, "--steps", "-s", help="number of streaming epochs"),
+    incident_edge: int = typer.Option(5, "--incident-edge", help="edge ID where incident occurs"),
+) -> None:
+    """Simulate a dynamic live traffic stream and generate evolving weight epochs."""
+    from quantroute.roadgraph import TrafficStreamSimulator, WeightModel, grid_city
+
+    graph = grid_city(grid_size, grid_size)
+    wm = WeightModel(graph, smoothing=0.4)
+    sim = TrafficStreamSimulator(graph, seed=42)
+
+    typer.echo(
+        f"simulating traffic stream on {grid_size}x{grid_size} city "
+        f"({graph.num_nodes} nodes, {graph.num_edges} edges):"
+    )
+    for ep in sim.stream_epochs(wm, steps=steps, incident_step=2, incident_edge=incident_edge):
+        avg_speed = (
+            float(graph.edge_len_m.sum()) / float(ep.travel_time_s.sum()) * 3.6
+        )  # network avg speed in km/h
+        incident_edge_time = ep.travel_time_s[incident_edge]
+        typer.echo(
+            f"  epoch {ep.epoch_id} [{ep.source}]: "
+            f"network avg speed = {avg_speed:.1f} km/h | "
+            f"edge {incident_edge} time = {incident_edge_time:.2f}s"
+        )
+
+
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="bind address"),

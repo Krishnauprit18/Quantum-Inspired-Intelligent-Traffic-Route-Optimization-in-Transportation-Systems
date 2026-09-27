@@ -18,6 +18,17 @@ from quantroute.roadgraph.loaders import (
     haversine_m,
 )
 from quantroute.roadgraph.matrix import RoadGraphMatrix
+from quantroute.roadgraph.osm import (
+    PRESET_CITIES,
+    build_overpass_query,
+    fetch_osm_city,
+    load_city_roadgraph,
+)
+from quantroute.roadgraph.traffic_stream import (
+    SUMOOutputParser,
+    TrafficProbe,
+    TrafficStreamSimulator,
+)
 from quantroute.roadgraph.weights import WeightEpoch, WeightModel
 
 __all__ = [
@@ -33,4 +44,11 @@ __all__ = [
     "grid_city",
     "haversine_m",
     "ROAD_CLASS_SPEED_KPH",
+    "PRESET_CITIES",
+    "build_overpass_query",
+    "fetch_osm_city",
+    "load_city_roadgraph",
+    "TrafficProbe",
+    "TrafficStreamSimulator",
+    "SUMOOutputParser",
 ]

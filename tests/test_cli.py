@@ -126,3 +126,17 @@ def test_solve_time_budget_stops_early():
     result = runner.invoke(app, ["solve", TOY, "-a", "pso", "-i", "100000", "-t", "0.05", "--json"])
     assert result.exit_code == 0
     assert json.loads(result.output)["stop_reason"] == "time_budget"
+
+
+def test_simulate_traffic_cli():
+    result = runner.invoke(app, ["simulate-traffic", "--grid", "3", "--steps", "2"])
+    assert result.exit_code == 0
+    assert "simulating traffic stream" in result.output
+    assert "epoch 0 [free_flow]" in result.output
+    assert "incident-edge-5" in result.output
+
+
+def test_ingest_osm_cli_invalid_bbox():
+    result = runner.invoke(app, ["ingest-osm", "--bbox", "invalid,bbox"])
+    assert result.exit_code == 1
+    assert "--bbox must be 4 comma-separated floats" in result.output

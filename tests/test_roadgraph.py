@@ -229,3 +229,81 @@ def test_congestion_makes_the_optimum_worse():
 
     assert jam_res.feasible
     assert jam_res.best_cost > free_res.best_cost * 1.5  # slower roads -> costlier routes
+
+
+# -- OSM & Traffic Stream tests ------------------------------------
+
+
+def test_overpass_query_builder_and_preset_cities():
+    from quantroute.roadgraph import PRESET_CITIES, build_overpass_query
+
+    assert "bengaluru" in PRESET_CITIES
+    assert "delhi" in PRESET_CITIES
+    q = build_overpass_query(PRESET_CITIES["bengaluru"], timeout_s=15)
+    assert "[out:xml][timeout:15];" in q
+    assert "highway" in q
+    assert "out body;" in q
+
+
+def test_sumo_output_parser():
+    from quantroute.roadgraph import SUMOOutputParser
+
+    sumo_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <meandata>
+      <interval begin="0.00" end="60.00" id="dump_60">
+        <edge id="edge_1" sampledSeconds="40.0" speed="12.5"/>
+        <edge id="edge_2" sampledSeconds="20.0" speed="5.0"/>
+      </interval>
+    </meandata>"""
+    speeds = SUMOOutputParser.parse_edge_speeds(sumo_xml)
+    # 12.5 m/s * 3.6 = 45 km/h; 5.0 m/s * 3.6 = 18 km/h
+    assert speeds["edge_1"] == pytest.approx(45.0)
+    assert speeds["edge_2"] == pytest.approx(18.0)
+
+
+def test_traffic_stream_simulator():
+    from quantroute.roadgraph import TrafficStreamSimulator
+
+    g = grid_city(4, 4)
+    sim = TrafficStreamSimulator(g, seed=123)
+
+    rush = sim.generate_rush_hour(arterial_factor=2.0, residential_factor=1.2)
+    assert len(rush) == g.num_edges
+    assert all(factor >= 1.0 for factor in rush.values())
+
+    incident = sim.generate_incident([0, 1], severity_multiplier=7.5)
+    assert incident[0] == 7.5
+    assert incident[1] == 7.5
+
+    probes = sim.generate_random_probes(sample_fraction=0.5)
+    assert len(probes) > 0
+    assert all(spd > 0 for spd in probes.values())
+
+    wm = WeightModel(g)
+    epochs = list(sim.stream_epochs(wm, steps=3, incident_step=2, incident_edge=0))
+    # free flow + 3 steps = 4 epochs
+    assert len(epochs) == 4
+    assert epochs[0].source == "free_flow"
+    assert "incident-edge-0" in epochs[2].source
+    # Incident edge should be significantly slower in epoch 2
+    assert epochs[2].travel_time_s[0] > epochs[0].travel_time_s[0] * 3.0
+
+
+def test_load_city_roadgraph_from_cache(tmp_path):
+    from quantroute.roadgraph import load_city_roadgraph
+
+    xml = """<?xml version='1.0'?>
+    <osm version="0.6">
+      <node id="1" lat="12.97" lon="77.59"/>
+      <node id="2" lat="12.97" lon="77.60"/>
+      <way id="100">
+        <nd ref="1"/><nd ref="2"/>
+        <tag k="highway" v="primary"/>
+      </way>
+    </osm>"""
+    p = tmp_path / "cached_city.osm"
+    p.write_text(xml, encoding="utf-8")
+
+    g = load_city_roadgraph("bengaluru", cache_path=p)
+    assert g.num_nodes == 2
+    assert g.num_edges == 2
