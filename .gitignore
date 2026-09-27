@@ -28,3 +28,4 @@ artifacts-*/
 demo_results_new/
 .vscode/
 #*.txt
+*.db

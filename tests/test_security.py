@@ -37,3 +37,29 @@ def test_api_key_protects_v1(monkeypatch):
         assert client.get("/v1/algorithms").status_code == 401
         assert client.get("/v1/algorithms", headers={"X-API-Key": "a" * 40}).status_code == 200
         assert client.get("/docs").status_code in {401, 404}
+
+
+def test_rbac_roles_and_bearer_auth(monkeypatch):
+    monkeypatch.setenv("QUANTROUTE_ENV", "production")
+    monkeypatch.setenv("QUANTROUTE_AUTH_ENABLED", "true")
+    monkeypatch.setenv("QUANTROUTE_API_KEY", "admin-key-secret-12345678901234567890")
+    monkeypatch.setenv("QUANTROUTE_DISPATCHER_KEY", "dispatcher-key-secret-123456789012")
+    monkeypatch.setenv("QUANTROUTE_DRIVER_KEY", "driver-key-secret-123456789012")
+    monkeypatch.setenv("QUANTROUTE_VIEWER_KEY", "viewer-key-secret-123456789012")
+    monkeypatch.setenv("QUANTROUTE_ALLOWED_HOSTS", "testserver")
+
+    with TestClient(create_app()) as client:
+        # Viewer key accesses algorithms via X-API-Key
+        r = client.get("/v1/algorithms", headers={"X-API-Key": "viewer-key-secret-123456789012"})
+        assert r.status_code == 200
+
+        # Dispatcher key accesses algorithms via Authorization: Bearer
+        r = client.get(
+            "/v1/algorithms",
+            headers={"Authorization": "Bearer dispatcher-key-secret-123456789012"},
+        )
+        assert r.status_code == 200
+
+        # Invalid key gets 401 Unauthorized
+        r = client.get("/v1/algorithms", headers={"X-API-Key": "wrong-key"})
+        assert r.status_code == 401

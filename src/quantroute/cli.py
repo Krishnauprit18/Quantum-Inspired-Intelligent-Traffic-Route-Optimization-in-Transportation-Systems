@@ -538,6 +538,33 @@ def serve(
     uvicorn.run("quantroute.service:create_app", host=host, port=port, factory=True, reload=reload)
 
 
+@app.command()
+def worker(
+    queue: str = typer.Option(None, "--queue", "-q", help="SQS queue name or URL"),
+    poll_seconds: int = typer.Option(5, "--poll-seconds", help="SQS long-poll wait time"),
+    once: bool = typer.Option(False, "--once", help="process one job batch and exit"),
+) -> None:
+    """Run asynchronous distributed optimization worker consuming from SQS."""
+    import time
+
+    from quantroute.service.worker import OptimizationWorker
+
+    w = OptimizationWorker(sqs_queue=queue)
+    typer.echo(f"starting QuantRoute optimization worker on queue: {w.sqs_queue}...")
+    if once:
+        worked = w.poll_once()
+        typer.echo(f"poll finished: {'processed message' if worked else 'queue empty'}")
+        return
+
+    typer.echo("worker listening for incoming VRP tasks (press Ctrl+C to stop)...")
+    try:
+        while True:
+            w.poll_once()
+            time.sleep(poll_seconds)
+    except KeyboardInterrupt:
+        typer.echo("worker stopped.")
+
+
 def main() -> None:
     app()
 
