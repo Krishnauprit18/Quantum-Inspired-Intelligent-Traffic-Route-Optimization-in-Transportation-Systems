@@ -144,40 +144,79 @@ def test_key_validation():
         enc.decode(np.array([0.1, np.nan, 0.3, 0.4]))
 
 
-def test_unsupported_instances_raise_not_implemented():
+def test_makespan_objective_supported():
     inst = parse_vrp(TOY)
-    with pytest.raises(NotImplementedError, match="makespan"):
-        RandomKeyGiantTour(
-            ProblemSpec(
-                name=inst.spec.name,
-                depots=inst.spec.depots,
-                stops=inst.spec.stops,
-                vehicles=inst.spec.vehicles,
-                objective=Objective.MIN_MAKESPAN,
-            ),
-            inst.matrix,
-        )
+    spec = ProblemSpec(
+        name=inst.spec.name,
+        depots=inst.spec.depots,
+        stops=inst.spec.stops,
+        vehicles=inst.spec.vehicles,
+        objective=Objective.MIN_MAKESPAN,
+    )
+    enc = RandomKeyGiantTour(spec, inst.matrix)
+    decoded = enc.decode_detailed(np.array([0.1, 0.2, 0.3, 0.4]))
+    assert decoded.feasible is True
+    # In toy: v1 takes (c2, c3)=40.0, v2 takes (c4, c5)=40.0 -> max is 40.0
+    assert decoded.cost == 40.0
 
-    two_depots = ProblemSpec(
+
+def test_multi_depot_instances_supported():
+    d1 = Depot("d1", 0)
+    d2 = Depot("d2", 10)
+    stops = (Stop("c1", node=1, demand=5.0), Stop("c2", node=9, demand=5.0))
+    vehicles = (
+        Vehicle("v1", capacity=10.0, start_depot="d1", end_depot="d1"),
+        Vehicle("v2", capacity=10.0, start_depot="d2", end_depot="d2"),
+    )
+    spec = ProblemSpec(
         name="two-depot",
-        depots=(Depot("d1", 0), Depot("d2", 1)),
-        stops=(Stop("c1", node=2, demand=1),),
-        vehicles=(Vehicle("v1", capacity=10, start_depot="d1"),),
+        depots=(d1, d2),
+        stops=stops,
+        vehicles=vehicles,
     )
-    with pytest.raises(NotImplementedError, match="single-depot"):
-        RandomKeyGiantTour(two_depots, euclidean_matrix_2d([0, 1, 2], [0, 1, 2], [0, 0, 0]))
+    matrix = euclidean_matrix_2d([0, 1, 9, 10], [0, 1, 9, 10], [0, 0, 0, 0])
+    enc = RandomKeyGiantTour(spec, matrix)
+    decoded = enc.decode_detailed(np.array([0.1, 0.2]))
+    assert decoded.feasible is True
+    routes = tuple(decoded.routes)
+    assert routes[0].vehicle_id == "v1"
+    assert routes[0].stop_ids == ("c1",)
+    assert routes[1].vehicle_id == "v2"
+    assert routes[1].stop_ids == ("c2",)
+    # v1: 0->1->0 = 2, v2: 10->9->10 = 2 -> total = 4
+    assert decoded.cost == 4.0
 
-    hetero = ProblemSpec(
-        name="hetero",
-        depots=(Depot("d1", 0),),
-        stops=(Stop("c1", node=1, demand=1),),
-        vehicles=(
-            Vehicle("v1", capacity=10, start_depot="d1"),
-            Vehicle("v2", capacity=20, start_depot="d1"),
-        ),
+
+def test_heterogeneous_fleet_supported():
+    d1 = Depot("d1", 0)
+    stops = (Stop("c1", node=1, demand=10.0), Stop("c2", node=2, demand=20.0))
+    vehicles = (
+        Vehicle("v1", capacity=15.0, start_depot="d1"),
+        Vehicle("v2", capacity=25.0, start_depot="d1"),
     )
-    with pytest.raises(NotImplementedError, match="homogeneous"):
-        RandomKeyGiantTour(hetero, euclidean_matrix_2d([0, 1], [0, 1], [0, 0]))
+    spec = ProblemSpec(
+        name="hetero",
+        depots=(d1,),
+        stops=stops,
+        vehicles=vehicles,
+    )
+    matrix = euclidean_matrix_2d([0, 1, 2], [0, 1, 2], [0, 0, 0])
+    enc = RandomKeyGiantTour(spec, matrix)
+    decoded = enc.decode_detailed(np.array([0.1, 0.2]))
+    assert decoded.feasible is True
+    routes = tuple(decoded.routes)
+    # v1 has cap 15 -> can only take c1 (demand 10)
+    # v2 has cap 25 -> takes c2 (demand 20)
+    assert routes[0].stop_ids == ("c1",)
+    assert routes[1].stop_ids == ("c2",)
+
+
+def test_invalid_depot_reference_raises():
+    d1 = Depot("d1", 0)
+    stops = (Stop("c1", node=1, demand=1.0),)
+    vehicles = (Vehicle("v1", capacity=10.0, start_depot="unknown_depot"),)
+    with pytest.raises(ValueError, match="unknown start_depot"):
+        ProblemSpec("bad-depot", depots=(d1,), stops=stops, vehicles=vehicles)
 
 
 def test_instance_arrays_are_read_only():

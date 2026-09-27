@@ -7,26 +7,19 @@ position vector and a concrete :class:`~quantroute.routes.Routes`:
   * ``bounds()``     — the box the optimizer clips to;
   * ``decode(keys)`` — position -> routes.
 
-``RandomKeyGiantTour`` is the standard *route-first, split-second* scheme (Prins, 2004):
+``RandomKeyGiantTour`` is the standard *route-first, split-second* scheme (Prins, 2004)
+extended to a k-bounded multi-depot heterogeneous Bellman recurrence:
 
   1. **Giant tour** — sort the stops by their key value to get one ordering of every stop.
   2. **Split** — cut that ordering into consecutive segments, one per vehicle, by an
-     optimal O(n * W) Bellman recurrence that respects vehicle capacity and minimises the
-     sum of route costs (``W`` = max stops that fit in one vehicle).
+     optimal k-bounded Bellman recurrence that respects per-vehicle capacity, individual
+     depot start/end nodes, and minimises the objective (travel time, distance, or makespan).
 
-The split here is the *unbounded* Bellman recurrence (minimise total cost over any number
-of capacity-feasible routes), then a fold: if it yields more than ``k`` routes the surplus
-stops go into the last vehicle and the result is flagged ``feasible=False`` — never hidden
-(FR-7); the evaluator (piece 4) turns that into a penalty. Known limitation: for a given
-ordering the unbounded optimum can use more than ``k`` routes even when a costlier split
-into ``<= k`` routes is feasible, so such orderings are reported infeasible here; a true
-``k``-bounded split DP is a later refinement. In practice, with a realistically sized fleet
-the unbounded optimum almost always uses ``<= k`` routes (extra routes cost extra depot
-legs). Complexity per decode: ``O(n * W)`` (``W`` = stops that fit one vehicle).
-
-Scope for this piece: **single depot, homogeneous capacity, sum objective** (travel time
-or distance). Multi-depot, heterogeneous fleets and a makespan split are later pieces and
-raise :class:`NotImplementedError` rather than silently mis-solving.
+Supports:
+  * Single-depot and Multi-depot VRP (MDVRP).
+  * Homogeneous and Heterogeneous vehicle fleet capacities (HVRP).
+  * Sum objectives (``MIN_TRAVEL_TIME``, ``MIN_DISTANCE``) and minimax ``MIN_MAKESPAN``.
+  * Time-window aware segment evaluation during split when time windows are enabled.
 """
 
 from __future__ import annotations
@@ -73,21 +66,21 @@ class Decoded:
 
     routes: Routes
     cost: float
-    """Sum of the produced routes' costs under the instance objective."""
+    """Cost of the produced routes under the instance objective."""
     feasible: bool
     """True iff every route is within capacity and no more than ``k`` vehicles are used."""
 
 
 class RandomKeyGiantTour:
-    """Random-key giant-tour encoding with a capacity-aware optimal split.
+    """Random-key giant-tour encoding with a k-bounded capacity and depot-aware optimal split.
 
     Parameters
     ----------
     spec:
-        The instance. Must be single-depot with a homogeneous fleet capacity and a
-        sum objective (``MIN_TRAVEL_TIME`` or ``MIN_DISTANCE``).
+        The instance specification. Supports single/multi-depot, homogeneous/heterogeneous
+        fleets, and travel time / distance / makespan objectives.
     matrix:
-        Cost oracle covering the depot and every stop node.
+        Cost oracle covering every depot and stop node.
     """
 
     __slots__ = (
@@ -95,44 +88,36 @@ class RandomKeyGiantTour:
         "_stop_ids",
         "_stop_nodes",
         "_demand",
+        "_tw_open",
+        "_tw_close",
+        "_service",
         "_vehicle_ids",
         "_k",
-        "_cap",
-        "_depot_node",
+        "_veh_caps",
+        "_veh_start_nodes",
+        "_veh_end_nodes",
+        "_veh_shift_starts",
+        "_objective",
+        "_enforce_tw",
         "_cost",
+        "_travel_time",
     )
 
     def __init__(self, spec: ProblemSpec, matrix: CostMatrix) -> None:
-        if spec.objective is Objective.MIN_MAKESPAN:
-            raise NotImplementedError(
-                "RandomKeyGiantTour supports sum objectives (travel time / distance); "
-                "a makespan split is a later piece"
-            )
-        if len(spec.depots) != 1:
-            raise NotImplementedError(
-                f"single-depot instances only for now; spec '{spec.name}' has "
-                f"{len(spec.depots)} depots"
-            )
-        capacities = {v.capacity for v in spec.vehicles}
-        if len(capacities) != 1:
-            raise NotImplementedError(
-                "homogeneous fleet capacity only for now; "
-                f"spec '{spec.name}' has capacities {sorted(capacities)}"
-            )
-
-        depot = spec.depots[0]
+        depots_by_id = {d.id: d for d in spec.depots}
         for v in spec.vehicles:
-            if v.start_depot != depot.id or v.effective_end_depot != depot.id:
-                raise NotImplementedError(
-                    "every vehicle must start and end at the single depot for now "
-                    f"(vehicle {v.id!r} does not)"
+            if v.start_depot not in depots_by_id:
+                raise ValueError(
+                    f"vehicle {v.id!r} references unknown start depot {v.start_depot!r}"
+                )
+            if v.effective_end_depot not in depots_by_id:
+                raise ValueError(
+                    f"vehicle {v.id!r} references unknown end depot {v.effective_end_depot!r}"
                 )
 
         known_nodes = set(matrix.nodes)
-        missing = sorted(
-            {s.node for s in spec.stops if s.node not in known_nodes}
-            | ({depot.node} if depot.node not in known_nodes else set())
-        )
+        need_nodes = {s.node for s in spec.stops} | {d.node for d in spec.depots}
+        missing = sorted(need_nodes - known_nodes)
         if missing:
             raise ValueError(
                 f"cost matrix is missing {len(missing)} node(s) from the instance: "
@@ -143,15 +128,40 @@ class RandomKeyGiantTour:
         self._stop_ids: tuple[str, ...] = tuple(s.id for s in spec.stops)
         self._stop_nodes = np.array([s.node for s in spec.stops], dtype=np.int64)
         self._demand = np.array([s.demand for s in spec.stops], dtype=np.float64)
-        self._stop_nodes.setflags(write=False)  # instance data is read-only after build
+        self._tw_open = np.array([s.tw_open_s for s in spec.stops], dtype=np.float64)
+        self._tw_close = np.array([s.tw_close_s for s in spec.stops], dtype=np.float64)
+        self._service = np.array([s.service_s for s in spec.stops], dtype=np.float64)
+
+        # Instance data is read-only after build
+        self._stop_nodes.setflags(write=False)
         self._demand.setflags(write=False)
+        self._tw_open.setflags(write=False)
+        self._tw_close.setflags(write=False)
+        self._service.setflags(write=False)
+
         self._vehicle_ids: tuple[str, ...] = tuple(v.id for v in spec.vehicles)
         self._k = len(spec.vehicles)
-        self._cap = float(capacities.pop())
-        self._depot_node = int(depot.node)
+        self._veh_caps = np.array([float(v.capacity) for v in spec.vehicles], dtype=np.float64)
+        self._veh_start_nodes = np.array(
+            [depots_by_id[v.start_depot].node for v in spec.vehicles], dtype=np.int64
+        )
+        self._veh_end_nodes = np.array(
+            [depots_by_id[v.effective_end_depot].node for v in spec.vehicles], dtype=np.int64
+        )
+        self._veh_shift_starts = np.array(
+            [float(v.shift_start_s) for v in spec.vehicles], dtype=np.float64
+        )
+        self._veh_caps.setflags(write=False)
+        self._veh_start_nodes.setflags(write=False)
+        self._veh_end_nodes.setflags(write=False)
+        self._veh_shift_starts.setflags(write=False)
+
+        self._objective = spec.objective
+        self._enforce_tw = spec.constraints.enforce_time_windows
         self._cost = (
             matrix.distance if spec.objective is Objective.MIN_DISTANCE else matrix.travel_time
         )
+        self._travel_time = matrix.travel_time
 
     # -- Encoding protocol --------------------------------------------------
 
@@ -179,28 +189,22 @@ class RandomKeyGiantTour:
         arr = self._validate_keys(keys)
         order = self._order(arr)
 
-        segments, split_feasible = self._split(order)
-
-        num_routes = len(segments)
-        if num_routes <= self._k:
-            route_idx = [list(order[a:b]) for (a, b) in segments]
-            route_idx.extend([] for _ in range(self._k - num_routes))
-            over_k = False
-        else:
-            route_idx = [list(order[a:b]) for (a, b) in segments[: self._k - 1]]
-            tail_start = segments[self._k - 1][0]
-            route_idx.append(list(order[tail_start:]))
-            over_k = True
+        assigned_routes, split_feasible = self._split(order)
 
         routes = tuple(
             Route(vehicle_id=vid, stop_ids=tuple(self._stop_ids[int(t)] for t in idxs))
-            for vid, idxs in zip(self._vehicle_ids, route_idx, strict=False)
+            for vid, idxs in zip(self._vehicle_ids, assigned_routes, strict=False)
         )
-        total = sum(self._route_cost(idxs) for idxs in route_idx)
+        if self._objective is Objective.MIN_MAKESPAN:
+            route_costs = [self._route_cost(m, idxs) for m, idxs in enumerate(assigned_routes)]
+            total = max(route_costs, default=0.0)
+        else:
+            total = sum(self._route_cost(m, idxs) for m, idxs in enumerate(assigned_routes))
+
         return Decoded(
             routes=Routes(routes),
             cost=float(total),
-            feasible=split_feasible and not over_k,
+            feasible=split_feasible,
         )
 
     # -- internals ------------------------------------------------------
@@ -217,87 +221,109 @@ class RandomKeyGiantTour:
     def _order(keys: np.ndarray) -> np.ndarray:
         return np.argsort(keys, kind="stable")
 
-    def _leg(self, a: int, b: int) -> float:
-        return self._cost(a, b)
+    def _split(self, order: np.ndarray) -> tuple[list[list[int]], bool]:
+        """k-bounded capacity, depot, and time-window aware split of the giant tour.
 
-    def _split(self, order: np.ndarray) -> tuple[list[tuple[int, int]], bool]:
-        """Optimal capacity-constrained split of the giant tour.
-
-        Returns ``(segments, feasible)`` where each segment is a half-open
-        ``(start, end)`` slice into ``order``. ``feasible`` is False only when some
-        stop's demand alone exceeds capacity (no split can work); then a greedy
-        next-fit partition is returned so the caller still has routes to score.
+        Returns ``(assigned_routes, feasible)`` where ``assigned_routes`` has length ``k``.
         """
-        n = self._n
-        nodes = [int(x) for x in self._stop_nodes[order]]
-        dem = self._demand[order]
-        cap = self._cap
+        n, k = self._n, self._k
+        if n == 0:
+            return [[] for _ in range(k)], True
 
-        # cumulative intra-tour cost so a segment's middle stretch is an O(1) lookup
-        prefix = np.zeros(n, dtype=np.float64)
-        for t in range(1, n):
-            prefix[t] = prefix[t - 1] + self._leg(nodes[t - 1], nodes[t])
-        d_out = np.array([self._leg(self._depot_node, c) for c in nodes], dtype=np.float64)
-        d_in = np.array([self._leg(c, self._depot_node) for c in nodes], dtype=np.float64)
+        is_makespan = self._objective is Objective.MIN_MAKESPAN
+        cost_to = np.full((n + 1, k + 1), np.inf, dtype=np.float64)
+        cost_to[0, 0] = 0.0
+        pred_i = np.full((n + 1, k + 1), -1, dtype=np.int64)
 
-        cost_to = np.full(n + 1, np.inf, dtype=np.float64)
-        cost_to[0] = 0.0
-        pred = np.full(n + 1, -1, dtype=np.int64)
+        for m in range(1, k + 1):
+            veh_idx = m - 1
+            cap = self._veh_caps[veh_idx]
+            d_start = int(self._veh_start_nodes[veh_idx])
+            d_end = int(self._veh_end_nodes[veh_idx])
+            shift_start = float(self._veh_shift_starts[veh_idx])
 
-        for i in range(n):
-            if not np.isfinite(cost_to[i]):
-                continue
-            load = 0.0
-            for j in range(i, n):
-                load += dem[j]
-                if load > cap + _LOAD_EPS:
-                    break
-                route_cost = d_out[i] + (prefix[j] - prefix[i]) + d_in[j]
-                candidate = cost_to[i] + route_cost
-                if candidate < cost_to[j + 1]:
-                    cost_to[j + 1] = candidate
-                    pred[j + 1] = i
+            # Idle vehicle option
+            cost_to[:, m] = cost_to[:, m - 1]
+            pred_i[:, m] = np.arange(n + 1)
 
-        if np.isfinite(cost_to[n]):
-            segments: list[tuple[int, int]] = []
-            j = n
-            while j > 0:
-                i = int(pred[j])
-                segments.append((i, j))
-                j = i
-            segments.reverse()
-            return segments, True
+            for i in range(n):
+                c_prev = cost_to[i, m - 1]
+                if not np.isfinite(c_prev):
+                    continue
+                load = 0.0
+                curr_cost = 0.0
+                t = shift_start
+                prev_node = d_start
+                tw_lateness = 0.0
 
-        return self._greedy_segments(dem), False
+                for j in range(i, n):
+                    idx = int(order[j])
+                    load += float(self._demand[idx])
+                    if load > cap + _LOAD_EPS:
+                        break
 
-    def _greedy_segments(self, dem_in_order: np.ndarray) -> list[tuple[int, int]]:
-        n = self._n
-        cap = self._cap
-        segments: list[tuple[int, int]] = []
-        i = 0
-        while i < n:
-            load = 0.0
-            j = i
-            while j < n:
-                nxt = load + float(dem_in_order[j])
-                if j > i and nxt > cap + _LOAD_EPS:
-                    break
-                load = nxt
-                j += 1
-                if load > cap + _LOAD_EPS:  # a single stop larger than capacity
-                    break
-            segments.append((i, j))
-            i = j
-        return segments
+                    node = int(self._stop_nodes[idx])
+                    curr_cost += self._cost(prev_node, node)
 
-    def _route_cost(self, stop_indices: list[int]) -> float:
+                    if self._enforce_tw:
+                        t += self._travel_time(prev_node, node)
+                        tw_open = self._tw_open[idx]
+                        tw_close = self._tw_close[idx]
+                        if t < tw_open:
+                            t = tw_open
+                        elif t > tw_close:
+                            tw_lateness += t - tw_close
+                        t += self._service[idx]
+
+                    prev_node = node
+                    full_route_cost = curr_cost + self._cost(prev_node, d_end)
+                    score = full_route_cost + (tw_lateness * 100.0 if self._enforce_tw else 0.0)
+
+                    cand = max(c_prev, score) if is_makespan else c_prev + score
+                    if cand < cost_to[j + 1, m]:
+                        cost_to[j + 1, m] = cand
+                        pred_i[j + 1, m] = i
+
+        if np.isfinite(cost_to[n, k]):
+            assigned: list[list[int]] = [[] for _ in range(k)]
+            j, m = n, k
+            while m > 0:
+                i = int(pred_i[j, m])
+                if i < j:
+                    assigned[m - 1] = [int(order[x]) for x in range(i, j)]
+                    j = i
+                m -= 1
+            return assigned, True
+
+        return self._greedy_assignment(order), False
+
+    def _greedy_assignment(self, order: np.ndarray) -> list[list[int]]:
+        """Fallback when no strictly capacity-feasible k-split exists (FR-7)."""
+        n, k = self._n, self._k
+        caps = self._veh_caps
+        assigned: list[list[int]] = [[] for _ in range(k)]
+        v = 0
+        curr_load = 0.0
+        for t in range(n):
+            idx = int(order[t])
+            d = float(self._demand[idx])
+            if v < k - 1 and curr_load + d > caps[v] + _LOAD_EPS:
+                v += 1
+                curr_load = 0.0
+            assigned[v].append(idx)
+            curr_load += d
+        return assigned
+
+    def _route_cost(self, veh_idx: int, stop_indices: list[int]) -> float:
         if not stop_indices:
             return 0.0
-        prev = self._depot_node
+        d_start = int(self._veh_start_nodes[veh_idx])
+        d_end = int(self._veh_end_nodes[veh_idx])
+        prev = d_start
         total = 0.0
         for t in stop_indices:
             node = int(self._stop_nodes[int(t)])
-            total += self._leg(prev, node)
+            total += self._cost(prev, node)
             prev = node
-        total += self._leg(prev, self._depot_node)
+        total += self._cost(prev, d_end)
         return total
