@@ -14,6 +14,12 @@ pipeline {
         timeout(time: 60, unit: 'MINUTES')
     }
 
+    triggers {
+        // Local Jenkins cannot receive a public GitHub webhook. SCM polling
+        // keeps the branch build automatic while remaining fully local.
+        pollSCM('H/5 * * * *')
+    }
+
     parameters {
         booleanParam(
             name: 'PUBLISH_IMAGE',
@@ -43,9 +49,14 @@ pipeline {
         FLOCI_SQS_QUEUE = 'quantroute-optimization-jobs'
         CI_VENV = '.ci-venv'
         ARTIFACT_DIR = 'artifacts'
+        // Floci's default ECR data plane is HTTP on a loopback hostname.
+        // These values affect only the optional local signing stage.
+        COSIGN_ALLOW_INSECURE_REGISTRY = 'true'
+        COSIGN_TLOG_UPLOAD = 'false'
+        COSIGN_NETWORK_MODE = 'host'
 
         TRIVY_IMAGE = 'aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969'
-        SYFT_IMAGE = 'ghcr.io/anchore/syft@sha256:500e2e872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02'
+        SYFT_IMAGE = 'ghcr.io/anchore/syft@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02'
         GITLEAKS_IMAGE = 'ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f'
         COSIGN_IMAGE = 'ghcr.io/sigstore/cosign/cosign@sha256:b29487e48205d875c324c79583e2806d9d269c0fa299e0861bbec023d8430c8b'
     }
@@ -53,7 +64,21 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
+                deleteDir()
                 checkout scm
+            }
+        }
+
+        stage('Pipeline Contract') {
+            steps {
+                sh '''
+                    set -Eeuo pipefail
+                    git diff --check
+                    for script in jenkins/scripts/*.sh; do
+                        test -x "$script"
+                        bash -n "$script"
+                    done
+                '''
             }
         }
 
@@ -71,9 +96,35 @@ pipeline {
                     env.GIT_SHA = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
                     env.SHORT_SHA = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
                     env.LOCAL_IMAGE = "${env.APP_NAME}:${env.SHORT_SHA}"
+                    env.PUBLISH_REQUESTED = params.PUBLISH_IMAGE.toString()
+                    env.SIGN_REQUESTED = params.SIGN_PROVENANCE.toString()
+                    env.DEPLOY_REQUESTED = params.DEPLOY_TO_FLOCI_EKS.toString()
                     echo "Git commit: ${env.GIT_SHA}"
                     echo "Local image: ${env.LOCAL_IMAGE}"
                 }
+                sh '''
+set -Eeuo pipefail
+"$CI_VENV/bin/python" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+metadata = {
+    "application": os.environ["APP_NAME"],
+    "build_number": os.environ.get("BUILD_NUMBER"),
+    "git_commit": os.environ["GIT_SHA"],
+    "git_branch": os.environ.get("BRANCH_NAME"),
+    "local_image": os.environ["LOCAL_IMAGE"],
+    "publish_requested": os.environ["PUBLISH_REQUESTED"] == "true",
+    "sign_requested": os.environ["SIGN_REQUESTED"] == "true",
+    "deploy_requested": os.environ["DEPLOY_REQUESTED"] == "true",
+}
+Path(os.environ["ARTIFACT_DIR"], "build-metadata.json").write_text(
+    json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+                '''
             }
         }
 
@@ -245,12 +296,28 @@ pipeline {
         always {
             sh 'mkdir -p "$ARTIFACT_DIR"'
             script {
+                def notRun = [
+                    'publish.txt': 'NOT_RUN: image publishing was disabled or an earlier gate failed.\n',
+                    'ecr-uri.txt': 'NOT_RUN: image publishing was disabled or an earlier gate failed.\n',
+                    'image-reference.txt': 'NOT_RUN: image publishing was disabled or an earlier gate failed.\n',
+                    'image-digest.txt': 'NOT_RUN: image publishing was disabled or an earlier gate failed.\n',
+                    'immutable-image-reference.txt': 'NOT_RUN: image publishing was disabled or an earlier gate failed.\n',
+                    'signing.txt': 'NOT_RUN: image signing was disabled or an earlier gate failed.\n',
+                    'terraform-plan.txt': 'NOT_RUN: deployment parameter disabled or an earlier gate failed.\n',
+                    'helm-lint.txt': 'NOT_RUN: deployment parameter disabled or an earlier gate failed.\n',
+                ]
+                notRun.each { name, message ->
+                    if (!fileExists("${env.ARTIFACT_DIR}/${name}")) {
+                        writeFile file: "${env.ARTIFACT_DIR}/${name}", text: message
+                    }
+                }
                 if (!fileExists("${env.ARTIFACT_DIR}/deployment-result.txt")) {
                     writeFile file: "${env.ARTIFACT_DIR}/deployment-result.txt", text: 'NOT_RUN: deployment parameter disabled or an earlier gate failed.\n'
                 }
                 if (!fileExists("${env.ARTIFACT_DIR}/smoke-test.txt")) {
                     writeFile file: "${env.ARTIFACT_DIR}/smoke-test.txt", text: 'NOT_RUN: deployment was not completed.\n'
                 }
+                writeFile file: "${env.ARTIFACT_DIR}/pipeline-result.txt", text: "${currentBuild.currentResult}\n"
             }
             junit testResults: "${env.ARTIFACT_DIR}/junit.xml", allowEmptyResults: true
             archiveArtifacts artifacts: "${env.ARTIFACT_DIR}/**/*", allowEmptyArchive: true, fingerprint: true

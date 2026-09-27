@@ -14,10 +14,21 @@ ecr_uri="$(aws --endpoint-url "$AWS_ENDPOINT_URL" ecr describe-repositories \
     --query 'repositories[0].repositoryUri' \
     --output text)"
 
+if [[ "$ecr_uri" != */* || "$ecr_uri" == */ ]]; then
+    echo "Invalid ECR repository URI returned by Floci: $ecr_uri" >&2
+    exit 1
+fi
+
+registry="${ecr_uri%%/*}"
+if [[ -z "$registry" || "$registry" == "$ecr_uri" ]]; then
+    echo "Could not derive an ECR registry host from: $ecr_uri" >&2
+    exit 1
+fi
+
 printf '%s\n' "$ecr_uri" > "$ARTIFACT_DIR/ecr-uri.txt"
 
 aws --endpoint-url "$AWS_ENDPOINT_URL" ecr get-login-password \
-    | docker login --username AWS --password-stdin "$ecr_uri"
+    | docker login --username AWS --password-stdin "$registry"
 
 image_ref="$ecr_uri:$SHORT_SHA"
 docker tag "$LOCAL_IMAGE" "$image_ref"

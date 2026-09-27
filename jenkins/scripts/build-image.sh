@@ -17,3 +17,5 @@ docker build \
 
 docker image inspect "$LOCAL_IMAGE" --format '{{json .RepoDigests}}' \
     | tee "$ARTIFACT_DIR/local-image-digests.json"
+docker image inspect "$LOCAL_IMAGE" --format '{{.Id}}' \
+    | tee "$ARTIFACT_DIR/local-image-id.txt"
